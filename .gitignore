@@ -1,3 +1,5 @@
 dist
 .venv
 myproj
+.vscode
+.ruff_cache

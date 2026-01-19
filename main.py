@@ -905,24 +905,6 @@ def _write_default_build_config(path, config):
   contents = json.dumps(data, indent=2)
   return _write_text_file(path, f"{contents}\n")
 
-
-def _maybe_copy_self(base_dir):
-  if shutil.which("build"):
-    return 0
-  source = Path(__file__).resolve()
-  destination = base_dir / "pycmkr"
-  if destination.exists():
-    return 0
-  try:
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(source, destination)
-  except OSError as exc:
-    error(f"failed to copy pycmkr to {destination}: {exc}")
-    return 1
-  info(f"copied pycmkr to {destination}")
-  return 0
-
-
 def _confirm_init_root(root_dir):
   prompt = f"Initialize in current directory ({root_dir})? [y/N]: "
   try:
@@ -943,10 +925,6 @@ def init_project(config, config_write_path, base_dir, project_name):
     project["name"] = project_name
   config = {**config, "project": project}
   created_any = False
-
-  result = _maybe_copy_self(base_dir)
-  if result != 0:
-    return result
 
   if config_write_path and not config_write_path.exists():
     project_override = {}
@@ -1302,7 +1280,10 @@ def main():
   config_write_path = None
   config_candidate = None
   known_configs = ["build_config.json"]
-  if config_path:
+  if command == "init" and base_dir and not config_path and not config_env:
+    config_candidate = base_dir / known_configs[0]
+    config_write_path = config_candidate
+  elif config_path:
     config_candidate = Path(config_path).expanduser()
     if allow_missing_config and base_dir and not config_candidate.is_absolute():
       config_candidate = base_dir / config_candidate
