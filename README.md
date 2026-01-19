@@ -106,6 +106,21 @@ pycmkr adddep raylib https://github.com/raysan5/raylib.git
 pycmkr build --config custom_build.json
 ```
 
+## Testing
+
+Unit tests use pytest:
+
+```bash
+pip install -e ".[dev]"
+pytest
+```
+
+Integration tests use the fixture in `tests/fixtures/minimal_project` and require CMake + Ninja:
+
+```bash
+PYCEMKR_INTEGRATION=1 pytest -m integration
+```
+
 ## Init Command
 
 `init` is intended for empty or new C projects. It accepts an optional `path`

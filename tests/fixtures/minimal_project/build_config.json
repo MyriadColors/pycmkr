@@ -1,0 +1,30 @@
+{
+  "build_dir": "build",
+  "default_test_target": "unit_tests",
+  "test_targets": [
+    "unit_tests"
+  ],
+  "dependency_file": "dependencies.cmake",
+  "dependency_local_function": "project_add_local_dependency",
+  "dependency_fetch_function": "project_add_fetch_dependency",
+  "project": {
+    "name": "MinimalProject",
+    "languages": [
+      "C"
+    ],
+    "min_cmake": "3.10",
+    "c_standard": "23",
+    "main_target": "main",
+    "main_sources": [
+      "main.c"
+    ],
+    "test_targets": [
+      {
+        "name": "unit_tests",
+        "sources": [
+          "unit_tests.c"
+        ]
+      }
+    ]
+  }
+}

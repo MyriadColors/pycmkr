@@ -24,6 +24,9 @@ classifiers = [
 # No external dependencies needed - uses only stdlib
 dependencies = []
 
+[project.optional-dependencies]
+dev = ["pytest"]
+
 [project.scripts]
 pycmkr = "main:main"
 
@@ -31,6 +34,10 @@ pycmkr = "main:main"
 Homepage = "https://github.com/MyriadColors/pycmkr"
 Repository = "https://github.com/MyriadColors/pycmkr"
 Issues = "https://github.com/MyriadColors/pycmkr/issues"
+
+[tool.pytest.ini_options]
+markers = ["integration: requires cmake/ninja and PYCEMKR_INTEGRATION=1"]
+testpaths = ["tests"]
 
 [tool.hatch.build.targets.wheel]
 include = ["main.py"]
