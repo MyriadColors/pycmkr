@@ -1,4 +1,4 @@
-# Build Tool: Generic C/C++ Project Build Helper
+# pycmkr: Python-based CMake/C++ Project Build Helper
 
 This tool wraps common C/C++ build tasks behind a consistent CLI. It is intended
 to work out of the box for many projects while allowing per-project defaults
@@ -40,7 +40,7 @@ to avoid conflicts with system packages. Use pipx or the `--user` flag as shown 
 
 ## Quick Start
 
-After installation, the `build` command is available globally:
+After installation, the `pycmkr` command is available globally:
 
 ```bash
 pycmkr configure
@@ -112,7 +112,7 @@ pycmkr build --config custom_build.json
 argument used for the destination directory; the project name is inferred from
 the final path segment. If `path` is omitted, `init` prompts and then creates
 the project in the current directory, using the current directory name as the
-project name. If the `build` script is not available on `PATH`, `init` copies
+project name. If the `pycmkr` script is not available on `PATH`, `init` copies
 `main.py` into the destination. It only creates files that do not already
 exist:
 

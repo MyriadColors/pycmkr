@@ -5,31 +5,31 @@ build-backend = "hatchling.build"
 [project]
 name = "pycmkr"
 version = "0.1.0"
-description = "A CMake/Ninja build wrapper and project manager for C/C++ projects"
+description = "A Python-based CMake/Ninja build wrapper and project manager for C/C++ projects"
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.10"
 authors = [
-    { name = "MyriadColors" }
+    { name = "MyriadColors"}
 ]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
-    "Programming Language :: Python :: 3.13",
-    "Programming Language :: Python :: 3.14",
 ]
 
 # No external dependencies needed - uses only stdlib
 dependencies = []
 
 [project.scripts]
-build = "main:main"
+pycmkr = "main:main"
 
 [project.urls]
-Homepage = "https://github.com/MyriadColors/c-scaffolder"
-Repository = "https://github.com/MyriadColors/c-scaffolder"
-Issues = "https://github.com/MyriadColors/c-scaffolder/issues"
+Homepage = "https://github.com/MyriadColors/pycmkr"
+Repository = "https://github.com/MyriadColors/pycmkr"
+Issues = "https://github.com/MyriadColors/pycmkr/issues"
 
 [tool.hatch.build.targets.wheel]
 packages = ["main.py"]
