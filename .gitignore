@@ -3,3 +3,5 @@ dist
 myproj
 .vscode
 .ruff_cache
+!README.md
+*.md
