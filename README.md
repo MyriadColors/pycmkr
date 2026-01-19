@@ -1,8 +1,9 @@
 # pycmkr: Python-based CMake/C++ Project Build Helper
 
-This tool wraps common C/C++ build tasks behind a consistent CLI. It is intended
+This tool wraps common C build tasks behind a consistent CLI. It is intended
 to work out of the box for many projects while allowing per-project defaults
-via JSON config and environment overrides.
+via JSON config and environment overrides. C++ support is planned but not yet
+implemented.
 
 ## Installation
 
@@ -47,6 +48,16 @@ pycmkr configure
 pycmkr build
 pycmkr run
 pycmkr test
+```
+
+### Starting a New Project
+
+Create a new C/C++ project and run it end-to-end:
+
+```bash
+pycmkr init
+pycmkr build
+pycmkr run
 ```
 
 For development or if not installed, you can still run directly:
@@ -118,7 +129,7 @@ pytest
 Integration tests use the fixture in `tests/fixtures/minimal_project` and require CMake + Ninja:
 
 ```bash
-PYCEMKR_INTEGRATION=1 pytest -m integration
+PYCMKR_INTEGRATION=1 pytest -m integration
 ```
 
 ## Init Command

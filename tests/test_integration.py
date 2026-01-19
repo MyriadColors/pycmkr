@@ -9,7 +9,7 @@ import pytest
 
 def _integration_ready():
     return (
-        os.environ.get("PYCEMKR_INTEGRATION") == "1"
+        os.environ.get("PYCMKR_INTEGRATION") == "1"
         and shutil.which("cmake")
         and shutil.which("ninja")
     )
@@ -18,7 +18,7 @@ def _integration_ready():
 @pytest.mark.integration
 @pytest.mark.skipif(
     not _integration_ready(),
-    reason="set PYCEMKR_INTEGRATION=1 and install cmake+ninja to run integration tests",
+    reason="set PYCMKR_INTEGRATION=1 and install cmake+ninja to run integration tests",
 )
 def test_cli_test_command(tmp_path):
     root = Path(__file__).resolve().parents[1]

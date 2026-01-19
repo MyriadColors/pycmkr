@@ -541,6 +541,15 @@ def _is_dangerous_delete_target(path):
 
 def clean_build_dir():
   path = build_dir()
+  project_root = BUILD_CONFIG.get("project_root")
+  if not project_root:
+    error("project root is not set; refusing to remove build dir")
+    return 1
+  resolved_path = _realpath_with_missing(path)
+  resolved_root = _realpath_with_missing(project_root)
+  if not _path_is_within(resolved_path, resolved_root):
+    error(f"refusing to remove build dir outside project root: {path}")
+    return 1
   if path.exists():
     if _is_dangerous_delete_target(path):
       error(f"refusing to remove unsafe build dir at {path}")
@@ -1262,6 +1271,9 @@ def main():
       "h": "help",
   }
   command = aliases.get(command, command)
+  if command in {"help", "-h", "--help"}:
+    usage()
+    return 0
 
   compiler = None
   config_path = None
