@@ -515,13 +515,45 @@ def build_dir():
   return BUILD_CONFIG["build_dir_resolved"] or BUILD_CONFIG["build_dir"]
 
 
+def _is_dangerous_delete_target(path):
+  try:
+    resolved = Path(path).resolve()
+  except OSError:
+    resolved = Path(path).absolute()
+  if resolved == Path(resolved.anchor):
+    return True
+  try:
+    if resolved == Path.home().resolve():
+      return True
+  except OSError:
+    if resolved == Path.home().absolute():
+      return True
+  project_root = BUILD_CONFIG.get("project_root")
+  if project_root:
+    try:
+      if resolved == Path(project_root).resolve():
+        return True
+    except OSError:
+      if resolved == Path(project_root).absolute():
+        return True
+  return False
+
+
 def clean_build_dir():
   path = build_dir()
   if path.exists():
+    if _is_dangerous_delete_target(path):
+      error(f"refusing to remove unsafe build dir at {path}")
+      return 1
+    if not path.is_dir():
+      error(f"build dir path is not a directory: {path}")
+      return 1
     info(f"removing {path}")
     shutil.rmtree(path)
+    return 0
   else:
     info(f"nothing to clean at {path}")
+  return 0
 
 
 # CMake/Ninja backend adapter.
@@ -1032,13 +1064,18 @@ def _dependency_exists(name):
     contents = path.read_text(encoding="utf-8")
   except OSError:
     return False
-  local_line = f"{BUILD_CONFIG['dependency_local_function']}(\"{name}\")"
-  fetch_line = f"{BUILD_CONFIG['dependency_fetch_function']}(\"{name}\""
+  escaped_name = name.replace("\\", "\\\\").replace("\"", "\\\"")
+  local_pattern = re.compile(
+      rf'^\s*{re.escape(BUILD_CONFIG["dependency_local_function"])}\s*\(\s*"{re.escape(escaped_name)}"\s*\)'
+  )
+  fetch_pattern = re.compile(
+      rf'^\s*{re.escape(BUILD_CONFIG["dependency_fetch_function"])}\s*\(\s*"{re.escape(escaped_name)}"\s*(,|\))'
+  )
   for line in contents.splitlines():
     stripped = line.strip()
     if not stripped or stripped.startswith("#"):
       continue
-    if local_line in stripped or fetch_line in stripped:
+    if local_pattern.search(line) or fetch_pattern.search(line):
       return True
   return False
 
@@ -1127,10 +1164,20 @@ def _local_dependency_found(name):
   return False
 
 
+def _cmake_escape(value):
+  return value.replace("\\", "\\\\").replace("\"", "\\\"")
+
+
 def _add_dependency(name, git_url):
   name = name.strip()
   if not name:
     error("usage: pycmkr adddep <name> [git_url]")
+    return 2
+  if "\n" in name or "\r" in name:
+    error("dependency name must not include newlines")
+    return 2
+  if git_url and ("\n" in git_url or "\r" in git_url):
+    error("dependency URL must not include newlines")
     return 2
 
   if _dependency_exists(name):
@@ -1154,14 +1201,18 @@ def _add_dependency(name, git_url):
 
   _ensure_dependency_file()
   path = _dependency_file_path()
+  escaped_name = _cmake_escape(name)
   try:
     with path.open("a", encoding="utf-8") as handle:
       if git_url:
+        escaped_url = _cmake_escape(git_url)
         handle.write(
-            f"{BUILD_CONFIG['dependency_fetch_function']}(\"{name}\" \"{git_url}\")\n"
+            f"{BUILD_CONFIG['dependency_fetch_function']}(\"{escaped_name}\" \"{escaped_url}\")\n"
         )
       else:
-        handle.write(f"{BUILD_CONFIG['dependency_local_function']}(\"{name}\")\n")
+        handle.write(
+            f"{BUILD_CONFIG['dependency_local_function']}(\"{escaped_name}\")\n"
+        )
   except OSError as exc:
     error(f"failed to update {path}: {exc}")
     return 1
@@ -1342,8 +1393,7 @@ def main():
     _clean_if_compiler_mismatch(compiler)
     return cmake_configure(compiler)
   if command == "clean":
-    clean_build_dir()
-    return 0
+    return clean_build_dir()
   if command == "build":
     return ensure_built(compiler)
   if command == "run":

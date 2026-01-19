@@ -33,4 +33,4 @@ Repository = "https://github.com/MyriadColors/pycmkr"
 Issues = "https://github.com/MyriadColors/pycmkr/issues"
 
 [tool.hatch.build.targets.wheel]
-packages = ["main.py"]
+include = ["main.py"]

@@ -112,9 +112,7 @@ pycmkr build --config custom_build.json
 argument used for the destination directory; the project name is inferred from
 the final path segment. If `path` is omitted, `init` prompts and then creates
 the project in the current directory, using the current directory name as the
-project name. If the `pycmkr` script is not available on `PATH`, `init` copies
-`main.py` into the destination. It only creates files that do not already
-exist:
+project name. It only creates files that do not already exist:
 
 - `CMakeLists.txt` (generic template)
 - `build_config.json` (defaults + project metadata)
