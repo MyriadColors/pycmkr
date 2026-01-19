@@ -992,7 +992,7 @@ def init_project(config, config_write_path, base_dir, project_name):
 
 
 def usage():
-  print("usage: python pycmkr <command> [args...]")
+  print("usage: pycmkr <command> [args...]")
   print("")
   print("commands:")
   print("  clean (cl)       remove the build directory")
@@ -1012,18 +1012,18 @@ def usage():
   print("  --config <path>  load build defaults from a JSON file")
   print("")
   print("examples:")
-  print("  python pycmkr build")
-  print("  python pycmkr build --cc gcc")
-  print("  python pycmkr run -- --config app_config.json")
-  print("  python pycmkr test")
-  print("  python pycmkr test --target unit_tests")
-  print("  python pycmkr init")
-  print("  python pycmkr init MyProject")
-  print("  python pycmkr init ~/new_proj")
-  print("  python pycmkr init ~/coding/clang/new_proj")
-  print("  python pycmkr build --config build_config.json")
-  print("  python pycmkr adddep raylib")
-  print("  python pycmkr --ad raylib https://github.com/raysan5/raylib.git")
+  print("  pycmkr build")
+  print("  pycmkr build --cc gcc")
+  print("  pycmkr run -- --config app_config.json")
+  print("  pycmkr test")
+  print("  pycmkr test --target unit_tests")
+  print("  pycmkr init")
+  print("  pycmkr init MyProject")
+  print("  pycmkr init ~/new_proj")
+  print("  pycmkr init ~/coding/clang/new_proj")
+  print("  pycmkr build --config build_config.json")
+  print("  pycmkr adddep raylib")
+  print("  pycmkr --ad raylib https://github.com/raysan5/raylib.git")
 
 
 def _dependency_file_path():
@@ -1152,7 +1152,7 @@ def _local_dependency_found(name):
 def _add_dependency(name, git_url):
   name = name.strip()
   if not name:
-    error("usage: python pycmkr adddep <name> [git_url]")
+    error("usage: pycmkr adddep <name> [git_url]")
     return 2
 
   if _dependency_exists(name):
@@ -1215,7 +1215,7 @@ def main():
   if command in {"adddep", "--ad"}:
     args = sys.argv[2:]
     if not args or len(args) > 2:
-      error("usage: python pycmkr adddep <name> [git_url]")
+      error("usage: pycmkr adddep <name> [git_url]")
       return 2
     name = args[0]
     git_url = args[1] if len(args) == 2 else None
@@ -1281,12 +1281,12 @@ def main():
   base_dir = None
   if command == "init":
     if len(args) > 1:
-      error("usage: python pycmkr init [path]")
+      error("usage: pycmkr init [path]")
       return 2
     if args:
       path_arg = args[0].strip()
       if not path_arg:
-        error("usage: python pycmkr init [path]")
+        error("usage: pycmkr init [path]")
         return 2
       base_dir = Path(path_arg).expanduser()
       project_name = _infer_project_name(base_dir.resolve())
@@ -1381,7 +1381,7 @@ def main():
         target = args[1]
         targets = [target]
       else:
-        error("usage: python pycmkr test [--target name]")
+        error("usage: pycmkr test [--target name]")
         return 2
     if not targets:
       if target:
