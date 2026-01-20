@@ -176,7 +176,7 @@ def _default_project_config() -> ProjectConfig:
     return {
         "name": "Project",
         "languages": ["C"],
-        "min_cmake": "3.10",
+        "min_cmake": "3.20",
         "c_standard": "23",
         "cxx_standard": None,
         "main_target": "main",
@@ -196,6 +196,8 @@ def _resolve_project_config() -> ProjectConfig:
     merged = cast(ProjectConfig, {**defaults, **project})
     if not project.get("name"):
         merged["name"] = _sanitize_project_name(Path.cwd().name)
+    else:
+        merged["name"] = _sanitize_project_name(merged["name"])
     if not project.get("main_sources"):
         merged["main_sources"] = defaults["main_sources"]
     if not project.get("languages"):
@@ -1098,15 +1100,18 @@ def init_project(
 ) -> int:
     """Create starter config and CMake files if they do not exist."""
     project = cast(ProjectConfig, dict(config["project"]))
-    if project_name:
-        project["name"] = project_name
+    sanitized_project_name = (
+        _sanitize_project_name(project_name) if project_name else None
+    )
+    if sanitized_project_name:
+        project["name"] = sanitized_project_name
     config = {**config, "project": project}
     created_any = False
 
     if config_write_path and not config_write_path.exists():
         project_override: ProjectConfigOverrides = {}
-        if project_name:
-            project_override["name"] = project_name
+        if sanitized_project_name:
+            project_override["name"] = sanitized_project_name
         result = _write_default_build_config(
             config_write_path, _config_for_write(project_override)
         )

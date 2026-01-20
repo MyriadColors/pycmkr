@@ -105,6 +105,36 @@ def test_resolve_project_config_defaults_and_sanitizes_name(tmp_path, monkeypatc
     assert result["main_sources"] == ["main.c"]
 
 
+def test_resolve_project_config_sanitizes_explicit_name():
+    main.BUILD_CONFIG["project"] = {
+        "name": "My Project!",
+        "languages": ["C"],
+        "main_sources": ["main.c"],
+    }
+
+    result = main._resolve_project_config()
+
+    assert result["name"] == "My_Project_"
+
+
+def test_init_project_sanitizes_project_name(tmp_path):
+    project_root = tmp_path / "root"
+    project_root.mkdir()
+    assert main._resolve_config_paths(project_root) == 0
+    config = main._resolve_config()
+
+    config_path = project_root / "build_config.json"
+    result = main.init_project(config, config_path, project_root, "My Project!")
+
+    assert result == 0
+    assert json.loads(config_path.read_text(encoding="utf-8"))["project"]["name"] == (
+        "My_Project_"
+    )
+    assert "project(My_Project_" in (project_root / "CMakeLists.txt").read_text(
+        encoding="utf-8"
+    )
+
+
 def test_resolve_dependency_file_relative(tmp_path):
     project_root = tmp_path / "project"
     project_root.mkdir()
