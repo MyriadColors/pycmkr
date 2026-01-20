@@ -8,3 +8,4 @@ myproj
 __pycache__
 .pytest_cache
 tests/__pycache__
+.mypy_cache
