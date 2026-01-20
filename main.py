@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Build orchestration helper for simple C/C++ CMake projects."""
+
 import glob
 import json
 import os
@@ -1185,8 +1186,8 @@ def _ensure_dependency_file() -> None:
         "# Add custom dependencies with the helpers below.",
         "#",
         "# Examples:",
-        f"#   {BUILD_CONFIG['dependency_local_function']}(\"raylib\")",
-        f"#   {BUILD_CONFIG['dependency_fetch_function']}(\"raylib\" \"https://github.com/raysan5/raylib.git\")",
+        f'#   {BUILD_CONFIG["dependency_local_function"]}("raylib")',
+        f'#   {BUILD_CONFIG["dependency_fetch_function"]}("raylib" "https://github.com/raysan5/raylib.git")',
         "",
     ]
     _write_text_file(path, "\n".join(header) + "\n")
@@ -1347,11 +1348,11 @@ def _add_dependency(name: str, git_url: Optional[str]) -> int:
             if git_url:
                 escaped_url = _cmake_escape(git_url)
                 handle.write(
-                    f"{BUILD_CONFIG['dependency_fetch_function']}(\"{escaped_name}\" \"{escaped_url}\")\n"
+                    f'{BUILD_CONFIG["dependency_fetch_function"]}("{escaped_name}" "{escaped_url}")\n'
                 )
             else:
                 handle.write(
-                    f"{BUILD_CONFIG['dependency_local_function']}(\"{escaped_name}\")\n"
+                    f'{BUILD_CONFIG["dependency_local_function"]}("{escaped_name}")\n'
                 )
     except OSError as exc:
         error(f"failed to update {path}: {exc}")
