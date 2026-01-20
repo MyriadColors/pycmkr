@@ -193,7 +193,7 @@ def _default_project_config() -> ProjectConfig:
 def _resolve_project_config() -> ProjectConfig:
     defaults = _default_project_config()
     project = cast(ProjectConfigOverrides, BUILD_CONFIG.get("project") or {})
-    merged = {**defaults, **project}
+    merged = cast(ProjectConfig, {**defaults, **project})
     if not project.get("name"):
         merged["name"] = _sanitize_project_name(Path.cwd().name)
     if not project.get("main_sources"):
@@ -270,13 +270,13 @@ def _apply_config_file(path: Path) -> int:
         if not isinstance(test_targets, list):
             error("config test_targets must be a list of strings")
             return 1
-        normalized = []
+        normalized_targets = []
         for entry in test_targets:
             if not isinstance(entry, str) or not entry.strip():
                 error("config test_targets must be a list of non-empty strings")
                 return 1
-            normalized.append(entry)
-        BUILD_CONFIG["test_targets"] = normalized
+            normalized_targets.append(entry)
+        BUILD_CONFIG["test_targets"] = normalized_targets
 
     dependency_file = data.get("dependency_file")
     if dependency_file is not None:
@@ -549,7 +549,9 @@ def _discover_config_path(start_dir: Path, names: Sequence[str]) -> Optional[Pat
     return None
 
 
-def _resolve_project_root(config_path: Union[Path, str]) -> Path:
+def _resolve_project_root(config_path: Optional[Union[Path, str]]) -> Path:
+    if not config_path:
+        return _realpath_with_missing(Path.cwd())
     config_path = Path(config_path)
     if not config_path.is_absolute():
         config_path = Path.cwd() / config_path
@@ -1055,17 +1057,19 @@ def _write_text_file(path: Path, contents: str) -> int:
 
 
 def _write_default_build_config(path: Path, config: WriteConfig) -> int:
-    data = {
+    data: dict[str, object] = {
         "build_dir": str(config["build_dir"]),
         "dependency_file": str(config["dependency_file"]),
         "dependency_local_function": config["dependency_local_function"],
         "dependency_fetch_function": config["dependency_fetch_function"],
         "project": config["project"],
     }
-    if config.get("default_test_target"):
-        data["default_test_target"] = config["default_test_target"]
-    if config.get("test_targets"):
-        data["test_targets"] = config["test_targets"]
+    default_test_target = config["default_test_target"]
+    if default_test_target:
+        data["default_test_target"] = default_test_target
+    test_targets = config["test_targets"]
+    if test_targets:
+        data["test_targets"] = test_targets
     contents = json.dumps(data, indent=2)
     return _write_text_file(path, f"{contents}\n")
 
@@ -1098,7 +1102,7 @@ def init_project(
     created_any = False
 
     if config_write_path and not config_write_path.exists():
-        project_override = {}
+        project_override: ProjectConfigOverrides = {}
         if project_name:
             project_override["name"] = project_name
         result = _write_default_build_config(
@@ -1525,7 +1529,8 @@ def main() -> int:
         return 0
 
     if command == "init":
-        if base_dir and not base_dir.exists():
+        assert base_dir is not None
+        if not base_dir.exists():
             try:
                 base_dir.mkdir(parents=True, exist_ok=True)
             except OSError as exc:
