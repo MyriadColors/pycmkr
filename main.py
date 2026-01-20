@@ -342,8 +342,10 @@ def _apply_config_file(path: Path) -> int:
                 return 1
 
         c_standard = project.get("c_standard")
-        if c_standard is not None:
-            if isinstance(c_standard, int):
+        if "c_standard" in project:
+            if c_standard is None:
+                normalized["c_standard"] = None
+            elif isinstance(c_standard, int):
                 normalized["c_standard"] = str(c_standard)
             elif isinstance(c_standard, str) and c_standard.strip():
                 normalized["c_standard"] = c_standard.strip()
