@@ -2,6 +2,7 @@
 """Build orchestration helper for simple C/C++ CMake projects."""
 
 import glob
+import importlib.metadata
 import json
 import os
 import re
@@ -1567,6 +1568,13 @@ def main() -> int:
         return 2
 
     command = sys.argv[1]
+    if command in {"-v", "--version"}:
+        try:
+            version = importlib.metadata.version("pycmkr")
+        except importlib.metadata.PackageNotFoundError:
+            version = "0.1.0"
+        print(f"pycmkr {version}")
+        return 0
     if command in {"adddep", "--ad"}:
         args = sys.argv[2:]
         if not args or len(args) > 2:
