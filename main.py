@@ -1335,7 +1335,7 @@ def usage() -> None:
     print("  test (t)         build (if needed) and run configured tests")
     print("  all (a)          configure, build, and run")
     print("  init (i) [path]  create a starter CMakeLists.txt and config if missing")
-    print("  adddep (--ad)    add a dependency (local on Linux or FetchContent)")
+    print("  adddep (d, ad)  add a dependency (local on Linux or FetchContent)")
     print("  help (h)         show this help text")
     print("")
     print("options:")
@@ -1354,7 +1354,7 @@ def usage() -> None:
     print("  pycmkr init ~/coding/clang/new_proj")
     print("  pycmkr build --config build_config.json")
     print("  pycmkr adddep raylib")
-    print("  pycmkr --ad raylib https://github.com/raysan5/raylib.git")
+    print("  pycmkr ad raylib https://github.com/raysan5/raylib.git")
 
 
 def _dependency_file_path() -> Path:
@@ -1575,14 +1575,6 @@ def main() -> int:
             version = "0.1.0"
         print(f"pycmkr {version}")
         return 0
-    if command in {"adddep", "--ad"}:
-        args = sys.argv[2:]
-        if not args or len(args) > 2:
-            error("usage: pycmkr adddep <name> [git_url]")
-            return 2
-        name = args[0]
-        git_url = args[1] if len(args) == 2 else None
-        return _add_dependency(name, git_url)
     args = sys.argv[2:]
 
     aliases = {
@@ -1593,12 +1585,21 @@ def main() -> int:
         "t": "test",
         "a": "all",
         "i": "init",
+        "d": "adddep",
+        "ad": "adddep",
         "h": "help",
     }
     command = aliases.get(command, command)
     if command in {"help", "-h", "--help"}:
         usage()
         return 0
+    if command == "adddep":
+        if not args or len(args) > 2:
+            error("usage: pycmkr adddep <name> [git_url]")
+            return 2
+        name = args[0]
+        git_url = args[1] if len(args) == 2 else None
+        return _add_dependency(name, git_url)
 
     compiler = None
     config_path = None

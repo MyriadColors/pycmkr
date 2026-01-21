@@ -78,7 +78,7 @@ python main.py test
 - `test` (alias: `t`) builds (if needed) and runs all configured tests
 - `all` (alias: `a`) configures, builds, and runs
 - `init` (alias: `i`) creates a starter `CMakeLists.txt`, `build_config.json`, and main source if missing
-- `adddep` (alias: `--ad`) adds a dependency (local on Linux or FetchContent)
+- `adddep` (aliases: `d`, `ad`) adds a dependency (local on Linux or FetchContent)
 - `help` (alias: `h`) shows help
 
 ## Options
