@@ -8,7 +8,7 @@ version = "0.1.0"
 license = {text = "MIT"}
 description = "A Python-based CMake/Ninja build wrapper and project manager for C/C++ projects"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.12"
 authors = [
     { name = "MyriadColors"}
 ]
@@ -36,7 +36,7 @@ Repository = "https://github.com/MyriadColors/pycmkr"
 Issues = "https://github.com/MyriadColors/pycmkr/issues"
 
 [tool.pytest.ini_options]
-markers = ["integration: requires cmake/ninja and PYCEMKR_INTEGRATION=1"]
+markers = ["integration: requires cmake/ninja"]
 testpaths = ["tests"]
 
 [tool.hatch.build.targets.wheel]

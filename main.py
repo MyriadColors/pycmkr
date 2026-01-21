@@ -11,7 +11,17 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
-from typing import Iterable, Mapping, Optional, Sequence, Tuple, TypedDict, Union, cast
+from typing import (
+    Any,
+    Iterable,
+    Mapping,
+    Optional,
+    Sequence,
+    Tuple,
+    TypedDict,
+    Union,
+    cast,
+)
 
 
 class ProjectTestTarget(TypedDict):
@@ -88,6 +98,13 @@ class ResolvedBuildConfig(TypedDict):
     dependency_local_function: str
     dependency_fetch_function: str
     project: ProjectConfig
+
+
+type ValidationResult[T] = tuple[int, Optional[T]]
+type StringValidationResult = tuple[int, Optional[str]]
+type ListValidationResult = tuple[int, Optional[list[str]]]
+type ProjectValidationResult = tuple[int, ProjectConfigOverrides]
+type TestTargetValidationResult = tuple[int, Optional[ProjectTestTarget]]
 
 
 class BuildConfigManager:
@@ -383,6 +400,317 @@ def _resolve_config(
     }
 
 
+def _validate_non_empty_string(value: Any, field_name: str) -> StringValidationResult:
+    """Validate value is a non-empty string.
+
+    Returns (0, string) if valid, (0, None) if value is None,
+    or (1, None) if invalid with error message printed.
+    Does NOT strip whitespace (Option C).
+    """
+    if value is None:
+        return (0, None)
+    if isinstance(value, str) and value.strip():
+        return (0, value)
+    error(f"config {field_name} must be a non-empty string")
+    return (1, None)
+
+
+def _validate_string_list(
+    value: Any, field_name: str, allow_empty: bool = True
+) -> ListValidationResult:
+    """Validate value is a list of non-empty strings.
+
+    Returns (0, list) if valid, (0, None) if value is None,
+    or (1, None) if invalid. Does NOT strip strings (Option C).
+    """
+    if value is None:
+        return (0, None)
+    if not isinstance(value, list):
+        error(f"config {field_name} must be a list of strings")
+        return (1, None)
+    normalized = []
+    for entry in value:
+        if not isinstance(entry, str) or not entry.strip():
+            error(f"config {field_name} must be a list of non-empty strings")
+            return (1, None)
+        normalized.append(entry)
+    if not normalized and not allow_empty:
+        error(f"config {field_name} must not be empty")
+        return (1, None)
+    return (0, normalized)
+
+
+def _validate_standard(
+    value: Any, field_name: str, allow_none: bool = False
+) -> StringValidationResult:
+    """Validate C/C++ standard (string, int, or None).
+
+    Converts int to string, strips whitespace (Option C - normalize standards).
+    Returns (0, string) or (0, None) if valid, (1, None) if invalid.
+    """
+    if value is None:
+        if allow_none:
+            return (0, None)
+        error(f"config {field_name} must be a string or integer")
+        return (1, None)
+    if isinstance(value, int):
+        return (0, str(value))
+    if isinstance(value, str) and value.strip():
+        return (0, value.strip())
+    error(f"config {field_name} must be a string or integer")
+    return (1, None)
+
+
+def _validate_optional_string(value: Any, field_name: str) -> StringValidationResult:
+    """Validate value is a string (may be empty).
+
+    Returns (0, string) if valid, (0, None) if value is None,
+    or (1, None) if invalid. Does NOT strip (Option C).
+    """
+    if value is None:
+        return (0, None)
+    if isinstance(value, str):
+        return (0, value)
+    error(f"config {field_name} must be a string")
+    return (1, None)
+
+
+def _validate_test_target(entry: Any, index: int) -> TestTargetValidationResult:
+    """Validate a single test target entry from config.
+
+    Validates entry is dict with 'name' and 'sources' fields.
+    Uses _validate_non_empty_string and _validate_string_list.
+    Returns (0, test_target_dict) if valid, (1, None) if invalid.
+    Error messages include index number.
+    """
+    if not isinstance(entry, dict):
+        error("config project.test_targets entries must be objects")
+        return (1, None)
+    name = entry.get("name")
+    if not isinstance(name, str) or not name:
+        error(f"config project.test_targets[{index}].name must be a non-empty string")
+        return (1, None)
+    sources = entry.get("sources")
+    if sources is None:
+        error(f"config project.test_targets[{index}].sources is required")
+        return (1, None)
+    if not isinstance(sources, list):
+        error(f"config project.test_targets[{index}].sources must be a list of strings")
+        return (1, None)
+    normalized_sources = []
+    for source in sources:
+        if not isinstance(source, str) or not source:
+            error(
+                f"config project.test_targets[{index}].sources must be a list of non-empty strings"
+            )
+            return (1, None)
+        normalized_sources.append(source)
+    if not normalized_sources:
+        error(f"config project.test_targets[{index}].sources must not be empty")
+        return (1, None)
+    return (0, {"name": name, "sources": normalized_sources})
+
+
+def _apply_build_level_config(data: dict, manager: BuildConfigManager) -> int:
+    """Validate and apply top-level build configuration fields.
+
+    Handles: build_dir, default_test_target, test_targets,
+             dependency_file, dependency_local_function,
+             dependency_fetch_function, deprecated main_target.
+
+    Returns 0 on success, 1 on validation error.
+    """
+    if "main_target" in data:
+        project = data.get("project")
+        if isinstance(project, dict) and "main_target" in project:
+            error(
+                "config has both main_target and project.main_target; "
+                "keep only project.main_target"
+            )
+            return 1
+        error("config main_target is not supported; use project.main_target")
+        return 1
+
+    build_dir = data.get("build_dir")
+    result, validated = _validate_non_empty_string(build_dir, "build_dir")
+    if result:
+        return 1
+    if validated is not None:
+        manager.set_build_dir(Path(validated))
+
+    test_target = data.get("default_test_target")
+    result, validated = _validate_non_empty_string(test_target, "default_test_target")
+    if result:
+        return 1
+    if validated is not None:
+        manager.set_default_test_target(validated)
+
+    test_targets = data.get("test_targets")
+    result, validated_list = _validate_string_list(test_targets, "test_targets")
+    if result:
+        return 1
+    if validated_list is not None:
+        manager.set_test_targets(validated_list)
+
+    dependency_file = data.get("dependency_file")
+    result, validated = _validate_non_empty_string(dependency_file, "dependency_file")
+    if result:
+        return 1
+    if validated is not None:
+        manager.set_dependency_file(Path(validated))
+
+    local_fn = data.get("dependency_local_function")
+    result, validated = _validate_non_empty_string(
+        local_fn, "dependency_local_function"
+    )
+    if result:
+        return 1
+    if validated is not None:
+        manager.set_dependency_local_function(validated)
+
+    fetch_fn = data.get("dependency_fetch_function")
+    result, validated = _validate_non_empty_string(
+        fetch_fn, "dependency_fetch_function"
+    )
+    if result:
+        return 1
+    if validated is not None:
+        manager.set_dependency_fetch_function(validated)
+
+    return 0
+
+
+def _validate_and_normalize_project(project: dict) -> ProjectValidationResult:
+    """Validate and normalize project configuration.
+
+    Validates all project fields using helper functions.
+    Returns (0, normalized_dict) on success, (1, {}) on error.
+    """
+    normalized: ProjectConfigOverrides = {}
+
+    name = project.get("name")
+    result, validated = _validate_non_empty_string(name, "project.name")
+    if result:
+        return (1, {})
+    if validated is not None:
+        normalized["name"] = validated
+
+    languages = project.get("languages")
+    result, validated_list = _validate_string_list(
+        languages, "project.languages", allow_empty=False
+    )
+    if result:
+        return (1, {})
+    if validated_list is not None:
+        normalized["languages"] = validated_list
+
+    min_cmake = project.get("min_cmake")
+    if min_cmake is not None:
+        result, validated = _validate_standard(
+            min_cmake, "project.min_cmake", allow_none=False
+        )
+        if result or validated is None:
+            return (1, {})
+        normalized["min_cmake"] = validated
+
+    c_standard = project.get("c_standard")
+    if "c_standard" in project:
+        result, validated = _validate_standard(
+            c_standard, "project.c_standard", allow_none=True
+        )
+        if result:
+            return (1, {})
+        normalized["c_standard"] = validated
+
+    cxx_standard = project.get("cxx_standard")
+    if "cxx_standard" in project:
+        result, validated = _validate_standard(
+            cxx_standard, "project.cxx_standard", allow_none=True
+        )
+        if result:
+            return (1, {})
+        normalized["cxx_standard"] = validated
+
+    main_target = project.get("main_target")
+    result, validated = _validate_non_empty_string(main_target, "project.main_target")
+    if result:
+        return (1, {})
+    if validated is not None:
+        normalized["main_target"] = validated
+
+    main_sources = project.get("main_sources")
+    result, validated_list = _validate_string_list(
+        main_sources, "project.main_sources", allow_empty=False
+    )
+    if result:
+        return (1, {})
+    if validated_list is not None:
+        normalized["main_sources"] = validated_list
+
+    test_targets = project.get("test_targets")
+    if test_targets is not None:
+        if not isinstance(test_targets, list):
+            error("config project.test_targets must be a list of objects")
+            return (1, {})
+        normalized_tests: list[ProjectTestTarget] = []
+        for index, entry in enumerate(test_targets):
+            result, validated_target = _validate_test_target(entry, index)
+            if result or validated_target is None:
+                return (1, {})
+            normalized_tests.append(validated_target)
+        normalized["test_targets"] = normalized_tests
+
+    include_dirs = project.get("include_dirs")
+    result, validated_list = _validate_string_list(include_dirs, "project.include_dirs")
+    if result:
+        return (1, {})
+    if validated_list is not None:
+        normalized["include_dirs"] = validated_list
+
+    definitions = project.get("definitions")
+    result, validated_list = _validate_string_list(definitions, "project.definitions")
+    if result:
+        return (1, {})
+    if validated_list is not None:
+        normalized["definitions"] = validated_list
+
+    compile_options = project.get("compile_options")
+    result, validated_list = _validate_string_list(
+        compile_options, "project.compile_options"
+    )
+    if result:
+        return (1, {})
+    if validated_list is not None:
+        normalized["compile_options"] = validated_list
+
+    link_libraries = project.get("link_libraries")
+    result, validated_list = _validate_string_list(
+        link_libraries, "project.link_libraries"
+    )
+    if result:
+        return (1, {})
+    if validated_list is not None:
+        normalized["link_libraries"] = validated_list
+
+    extra_lines = project.get("extra_cmake_lines")
+    if extra_lines is not None:
+        if not isinstance(extra_lines, list):
+            error("config project.extra_cmake_lines must be a list of strings")
+            return (1, {})
+        normalized_lines = []
+        for entry in extra_lines:
+            result, validated = _validate_optional_string(
+                entry, "project.extra_cmake_lines"
+            )
+            if result:
+                return (1, {})
+            if validated is not None:
+                normalized_lines.append(validated)
+        normalized["extra_cmake_lines"] = normalized_lines
+
+    return (0, normalized)
+
+
 def _apply_config_file(path: Path) -> int:
     """Load and validate a JSON config file into config_manager."""
     manager = globals()["config_manager"]
@@ -400,272 +728,18 @@ def _apply_config_file(path: Path) -> int:
         error(f"config file {path} must contain a JSON object")
         return 1
 
-    if "main_target" in data:
-        project = data.get("project")
-        if isinstance(project, dict) and "main_target" in project:
-            error(
-                "config has both main_target and project.main_target; "
-                "keep only project.main_target"
-            )
-            return 1
-        error("config main_target is not supported; use project.main_target")
+    result = _apply_build_level_config(data, manager)
+    if result:
         return 1
-
-    build_dir = data.get("build_dir")
-    if build_dir is not None:
-        if not isinstance(build_dir, str) or not build_dir.strip():
-            error("config build_dir must be a non-empty string")
-            return 1
-        manager.set_build_dir(Path(build_dir))
-
-    test_target = data.get("default_test_target")
-    if test_target is not None:
-        if not isinstance(test_target, str) or not test_target.strip():
-            error("config default_test_target must be a non-empty string")
-            return 1
-        manager.set_default_test_target(test_target)
-
-    test_targets = data.get("test_targets")
-    if test_targets is not None:
-        if not isinstance(test_targets, list):
-            error("config test_targets must be a list of strings")
-            return 1
-        normalized_targets = []
-        for entry in test_targets:
-            if not isinstance(entry, str) or not entry.strip():
-                error("config test_targets must be a list of non-empty strings")
-                return 1
-            normalized_targets.append(entry)
-        manager.set_test_targets(normalized_targets)
-
-    dependency_file = data.get("dependency_file")
-    if dependency_file is not None:
-        if not isinstance(dependency_file, str) or not dependency_file.strip():
-            error("config dependency_file must be a non-empty string")
-            return 1
-        manager.set_dependency_file(Path(dependency_file))
-
-    local_fn = data.get("dependency_local_function")
-    if local_fn is not None:
-        if not isinstance(local_fn, str) or not local_fn.strip():
-            error("config dependency_local_function must be a non-empty string")
-            return 1
-        manager.set_dependency_local_function(local_fn)
-
-    fetch_fn = data.get("dependency_fetch_function")
-    if fetch_fn is not None:
-        if not isinstance(fetch_fn, str) or not fetch_fn.strip():
-            error("config dependency_fetch_function must be a non-empty string")
-            return 1
-        manager.set_dependency_fetch_function(fetch_fn)
 
     project = data.get("project")
     if project is not None:
-        if not isinstance(project, dict):
-            error("config project must be a JSON object")
+        result, normalized = _validate_and_normalize_project(project)
+        if result or not normalized:
             return 1
-        normalized: ProjectConfigOverrides = {}
-
-        name = project.get("name")
-        if name is not None:
-            if not isinstance(name, str) or not name.strip():
-                error("config project.name must be a non-empty string")
-                return 1
-            normalized["name"] = name
-
-        languages = project.get("languages")
-        if languages is not None:
-            if not isinstance(languages, list):
-                error("config project.languages must be a list of strings")
-                return 1
-            normalized_languages = []
-            for entry in languages:
-                if not isinstance(entry, str) or not entry.strip():
-                    error(
-                        "config project.languages must be a list of non-empty strings"
-                    )
-                    return 1
-                normalized_languages.append(entry)
-            if not normalized_languages:
-                error("config project.languages must not be empty")
-                return 1
-            normalized["languages"] = normalized_languages
-
-        min_cmake = project.get("min_cmake")
-        if min_cmake is not None:
-            if isinstance(min_cmake, int):
-                normalized["min_cmake"] = str(min_cmake)
-            elif isinstance(min_cmake, str) and min_cmake.strip():
-                normalized["min_cmake"] = min_cmake.strip()
-            else:
-                error("config project.min_cmake must be a string or integer")
-                return 1
-
-        c_standard = project.get("c_standard")
-        if "c_standard" in project:
-            if c_standard is None:
-                normalized["c_standard"] = None
-            elif isinstance(c_standard, int):
-                normalized["c_standard"] = str(c_standard)
-            elif isinstance(c_standard, str) and c_standard.strip():
-                normalized["c_standard"] = c_standard.strip()
-            else:
-                error("config project.c_standard must be a string, integer, or null")
-                return 1
-
-        cxx_standard = project.get("cxx_standard")
-        if "cxx_standard" in project:
-            if cxx_standard is None:
-                normalized["cxx_standard"] = None
-            elif isinstance(cxx_standard, int):
-                normalized["cxx_standard"] = str(cxx_standard)
-            elif isinstance(cxx_standard, str) and cxx_standard.strip():
-                normalized["cxx_standard"] = cxx_standard.strip()
-            else:
-                error("config project.cxx_standard must be a string, integer, or null")
-                return 1
-
-        main_target = project.get("main_target")
-        if main_target is not None:
-            if not isinstance(main_target, str) or not main_target.strip():
-                error("config project.main_target must be a non-empty string")
-                return 1
-            normalized["main_target"] = main_target
-
-        main_sources = project.get("main_sources")
-        if main_sources is not None:
-            if not isinstance(main_sources, list):
-                error("config project.main_sources must be a list of strings")
-                return 1
-            normalized_sources = []
-            for entry in main_sources:
-                if not isinstance(entry, str) or not entry.strip():
-                    error(
-                        "config project.main_sources must be a list of non-empty strings"
-                    )
-                    return 1
-                normalized_sources.append(entry)
-            if not normalized_sources:
-                error("config project.main_sources must not be empty")
-                return 1
-            normalized["main_sources"] = normalized_sources
-
-        test_targets = project.get("test_targets")
-        if test_targets is not None:
-            if not isinstance(test_targets, list):
-                error("config project.test_targets must be a list of objects")
-                return 1
-            normalized_tests: list[ProjectTestTarget] = []
-            for entry in test_targets:
-                if not isinstance(entry, dict):
-                    error("config project.test_targets entries must be objects")
-                    return 1
-                target_name = entry.get("name")
-                if not isinstance(target_name, str) or not target_name.strip():
-                    error("config project.test_targets.name must be a non-empty string")
-                    return 1
-                sources = entry.get("sources")
-                if not isinstance(sources, list):
-                    error(
-                        "config project.test_targets.sources must be a list of strings"
-                    )
-                    return 1
-                normalized_sources = []
-                for source in sources:
-                    if not isinstance(source, str) or not source.strip():
-                        error(
-                            "config project.test_targets.sources must be a list of non-empty strings"
-                        )
-                        return 1
-                    normalized_sources.append(source)
-                if not normalized_sources:
-                    error("config project.test_targets.sources must not be empty")
-                    return 1
-                normalized_tests.append(
-                    {
-                        "name": target_name,
-                        "sources": normalized_sources,
-                    }
-                )
-            normalized["test_targets"] = normalized_tests
-
-        include_dirs = project.get("include_dirs")
-        if include_dirs is not None:
-            if not isinstance(include_dirs, list):
-                error("config project.include_dirs must be a list of strings")
-                return 1
-            normalized_dirs = []
-            for entry in include_dirs:
-                if not isinstance(entry, str) or not entry.strip():
-                    error(
-                        "config project.include_dirs must be a list of non-empty strings"
-                    )
-                    return 1
-                normalized_dirs.append(entry)
-            normalized["include_dirs"] = normalized_dirs
-
-        definitions = project.get("definitions")
-        if definitions is not None:
-            if not isinstance(definitions, list):
-                error("config project.definitions must be a list of strings")
-                return 1
-            normalized_defs = []
-            for entry in definitions:
-                if not isinstance(entry, str) or not entry.strip():
-                    error(
-                        "config project.definitions must be a list of non-empty strings"
-                    )
-                    return 1
-                normalized_defs.append(entry)
-            normalized["definitions"] = normalized_defs
-
-        compile_options = project.get("compile_options")
-        if compile_options is not None:
-            if not isinstance(compile_options, list):
-                error("config project.compile_options must be a list of strings")
-                return 1
-            normalized_options = []
-            for entry in compile_options:
-                if not isinstance(entry, str) or not entry.strip():
-                    error(
-                        "config project.compile_options must be a list of non-empty strings"
-                    )
-                    return 1
-                normalized_options.append(entry)
-            normalized["compile_options"] = normalized_options
-
-        link_libraries = project.get("link_libraries")
-        if link_libraries is not None:
-            if not isinstance(link_libraries, list):
-                error("config project.link_libraries must be a list of strings")
-                return 1
-            normalized_libs = []
-            for entry in link_libraries:
-                if not isinstance(entry, str) or not entry.strip():
-                    error(
-                        "config project.link_libraries must be a list of non-empty strings"
-                    )
-                    return 1
-                normalized_libs.append(entry)
-            normalized["link_libraries"] = normalized_libs
-
-        extra_lines = project.get("extra_cmake_lines")
-        if extra_lines is not None:
-            if not isinstance(extra_lines, list):
-                error("config project.extra_cmake_lines must be a list of strings")
-                return 1
-            normalized_lines = []
-            for entry in extra_lines:
-                if not isinstance(entry, str):
-                    error("config project.extra_cmake_lines must be a list of strings")
-                    return 1
-                normalized_lines.append(entry)
-            normalized["extra_cmake_lines"] = normalized_lines
-
-        if normalized:
-            current = manager.project or {}
-            current.update(normalized)
-            manager.set_project(current)
+        current = manager.project or {}
+        current.update(normalized)
+        manager.set_project(current)
 
     return 0
 
