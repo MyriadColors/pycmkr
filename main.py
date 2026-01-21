@@ -89,6 +89,169 @@ class ResolvedBuildConfig(TypedDict):
     project: ProjectConfig
 
 
+class BuildConfigManager:
+    def __init__(
+        self,
+        build_dir: Path = Path("build"),
+        default_test_target: Optional[str] = None,
+        test_targets: Optional[list[str]] = None,
+        dependency_file: Path = Path("dependencies.cmake"),
+        dependency_local_function: str = "project_add_local_dependency",
+        dependency_fetch_function: str = "project_add_fetch_dependency",
+        project: Optional[ProjectConfigOverrides] = None,
+        project_root: Optional[Path] = None,
+        build_dir_resolved: Optional[Path] = None,
+        dependency_file_resolved: Optional[Path] = None,
+        dependency_file_cmake: Optional[Path] = None,
+        dependency_file_cmake_abs: bool = False,
+        config_path: Optional[Path] = None,
+    ):
+        self._build_dir = build_dir
+        self._default_test_target = default_test_target
+        self._test_targets = test_targets if test_targets is not None else []
+        self._dependency_file = dependency_file
+        self._dependency_local_function = dependency_local_function
+        self._dependency_fetch_function = dependency_fetch_function
+        self._project = (
+            project if project is not None else cast(ProjectConfigOverrides, {})
+        )
+        self._project_root = project_root
+        self._build_dir_resolved = build_dir_resolved
+        self._dependency_file_resolved = dependency_file_resolved
+        self._dependency_file_cmake = dependency_file_cmake
+        self._dependency_file_cmake_abs = dependency_file_cmake_abs
+        self._config_path = config_path
+
+    @property
+    def build_dir(self) -> Path:
+        return self._build_dir
+
+    @property
+    def default_test_target(self) -> Optional[str]:
+        return self._default_test_target
+
+    @property
+    def test_targets(self) -> list[str]:
+        return self._test_targets
+
+    @property
+    def dependency_file(self) -> Path:
+        return self._dependency_file
+
+    @property
+    def dependency_local_function(self) -> str:
+        return self._dependency_local_function
+
+    @property
+    def dependency_fetch_function(self) -> str:
+        return self._dependency_fetch_function
+
+    @property
+    def project(self) -> ProjectConfigOverrides:
+        return self._project
+
+    @property
+    def project_root(self) -> Optional[Path]:
+        return self._project_root
+
+    @property
+    def build_dir_resolved(self) -> Optional[Path]:
+        return self._build_dir_resolved
+
+    @property
+    def dependency_file_resolved(self) -> Optional[Path]:
+        return self._dependency_file_resolved
+
+    @property
+    def dependency_file_cmake(self) -> Optional[Path]:
+        return self._dependency_file_cmake
+
+    @property
+    def dependency_file_cmake_abs(self) -> bool:
+        return self._dependency_file_cmake_abs
+
+    @property
+    def config_path(self) -> Optional[Path]:
+        return self._config_path
+
+    def set_build_dir(self, value: Path) -> None:
+        self._build_dir = value
+
+    def set_default_test_target(self, value: Optional[str]) -> None:
+        self._default_test_target = value
+
+    def set_test_targets(self, value: list[str]) -> None:
+        self._test_targets = value
+
+    def set_dependency_file(self, value: Path) -> None:
+        self._dependency_file = value
+
+    def set_dependency_local_function(self, value: str) -> None:
+        self._dependency_local_function = value
+
+    def set_dependency_fetch_function(self, value: str) -> None:
+        self._dependency_fetch_function = value
+
+    def set_project(self, value: ProjectConfigOverrides) -> None:
+        self._project = value
+
+    def set_project_root(self, value: Path) -> None:
+        self._project_root = value
+
+    def set_build_dir_resolved(self, value: Optional[Path]) -> None:
+        self._build_dir_resolved = value
+
+    def set_dependency_file_resolved(self, value: Optional[Path]) -> None:
+        self._dependency_file_resolved = value
+
+    def set_dependency_file_cmake(self, value: Optional[Path]) -> None:
+        self._dependency_file_cmake = value
+
+    def set_dependency_file_cmake_abs(self, value: bool) -> None:
+        self._dependency_file_cmake_abs = value
+
+    def set_config_path(self, value: Optional[Path]) -> None:
+        self._config_path = value
+
+    def to_dict(self) -> BuildConfig:
+        return cast(
+            BuildConfig,
+            {
+                "build_dir": self._build_dir,
+                "default_test_target": self._default_test_target,
+                "test_targets": self._test_targets,
+                "dependency_file": self._dependency_file,
+                "dependency_local_function": self._dependency_local_function,
+                "dependency_fetch_function": self._dependency_fetch_function,
+                "project": self._project,
+                "project_root": self._project_root,
+                "build_dir_resolved": self._build_dir_resolved,
+                "dependency_file_resolved": self._dependency_file_resolved,
+                "dependency_file_cmake": self._dependency_file_cmake,
+                "dependency_file_cmake_abs": self._dependency_file_cmake_abs,
+                "config_path": self._config_path,
+            },
+        )
+
+    @classmethod
+    def from_dict(cls, config: BuildConfig) -> "BuildConfigManager":
+        return cls(
+            build_dir=config["build_dir"],
+            default_test_target=config["default_test_target"],
+            test_targets=config["test_targets"],
+            dependency_file=config["dependency_file"],
+            dependency_local_function=config["dependency_local_function"],
+            dependency_fetch_function=config["dependency_fetch_function"],
+            project=config["project"],
+            project_root=config["project_root"],
+            build_dir_resolved=config["build_dir_resolved"],
+            dependency_file_resolved=config["dependency_file_resolved"],
+            dependency_file_cmake=config["dependency_file_cmake"],
+            dependency_file_cmake_abs=config["dependency_file_cmake_abs"],
+            config_path=config["config_path"],
+        )
+
+
 def info(message: str) -> None:
     """Print a standard informational message."""
     print(f"[pycmkr] {message}")
@@ -149,22 +312,8 @@ def _cmake_path(path: Path) -> str:
     return path.as_posix()
 
 
-# Project configuration defaults.
-BUILD_CONFIG: BuildConfig = {
-    "build_dir": Path("build"),
-    "default_test_target": None,
-    "test_targets": [],
-    "dependency_file": Path("dependencies.cmake"),
-    "dependency_local_function": "project_add_local_dependency",
-    "dependency_fetch_function": "project_add_fetch_dependency",
-    "project": {},
-    "project_root": None,
-    "build_dir_resolved": None,
-    "dependency_file_resolved": None,
-    "dependency_file_cmake": None,
-    "dependency_file_cmake_abs": False,
-    "config_path": None,
-}
+# Project configuration manager
+config_manager = BuildConfigManager()
 
 
 def _sanitize_project_name(name: str) -> str:
@@ -190,9 +339,14 @@ def _default_project_config() -> ProjectConfig:
     }
 
 
-def _resolve_project_config() -> ProjectConfig:
+def _resolve_project_config(
+    config_manager: Optional[BuildConfigManager] = None,
+) -> ProjectConfig:
+    manager = (
+        config_manager if config_manager is not None else globals()["config_manager"]
+    )
     defaults = _default_project_config()
-    project = cast(ProjectConfigOverrides, BUILD_CONFIG.get("project") or {})
+    project = manager.project
     merged = cast(ProjectConfig, {**defaults, **project})
     if not project.get("name"):
         merged["name"] = _sanitize_project_name(Path.cwd().name)
@@ -205,29 +359,32 @@ def _resolve_project_config() -> ProjectConfig:
     return merged
 
 
-def _resolve_config() -> ResolvedBuildConfig:
-    project = _resolve_project_config()
+def _resolve_config(
+    config_manager: Optional[BuildConfigManager] = None,
+) -> ResolvedBuildConfig:
+    manager = (
+        config_manager if config_manager is not None else globals()["config_manager"]
+    )
+    project = _resolve_project_config(manager)
     return {
-        "project_root": cast(Path, BUILD_CONFIG["project_root"]),
-        "build_dir": cast(
-            Path, BUILD_CONFIG["build_dir_resolved"] or BUILD_CONFIG["build_dir"]
-        ),
-        "default_test_target": BUILD_CONFIG["default_test_target"],
-        "test_targets": BUILD_CONFIG["test_targets"],
+        "project_root": cast(Path, manager.project_root),
+        "build_dir": cast(Path, manager.build_dir_resolved or manager.build_dir),
+        "default_test_target": manager.default_test_target,
+        "test_targets": manager.test_targets,
         "dependency_file": cast(
-            Path,
-            BUILD_CONFIG["dependency_file_resolved"] or BUILD_CONFIG["dependency_file"],
+            Path, manager.dependency_file_resolved or manager.dependency_file
         ),
-        "dependency_file_cmake": cast(Path, BUILD_CONFIG["dependency_file_cmake"]),
-        "dependency_file_cmake_abs": BUILD_CONFIG["dependency_file_cmake_abs"],
-        "dependency_local_function": BUILD_CONFIG["dependency_local_function"],
-        "dependency_fetch_function": BUILD_CONFIG["dependency_fetch_function"],
+        "dependency_file_cmake": cast(Path, manager.dependency_file_cmake),
+        "dependency_file_cmake_abs": manager.dependency_file_cmake_abs,
+        "dependency_local_function": manager.dependency_local_function,
+        "dependency_fetch_function": manager.dependency_fetch_function,
         "project": project,
     }
 
 
 def _apply_config_file(path: Path) -> int:
-    """Load and validate a JSON config file into BUILD_CONFIG."""
+    """Load and validate a JSON config file into config_manager."""
+    manager = globals()["config_manager"]
     try:
         contents = path.read_text(encoding="utf-8")
     except OSError as exc:
@@ -258,14 +415,14 @@ def _apply_config_file(path: Path) -> int:
         if not isinstance(build_dir, str) or not build_dir.strip():
             error("config build_dir must be a non-empty string")
             return 1
-        BUILD_CONFIG["build_dir"] = Path(build_dir)
+        manager.set_build_dir(Path(build_dir))
 
     test_target = data.get("default_test_target")
     if test_target is not None:
         if not isinstance(test_target, str) or not test_target.strip():
             error("config default_test_target must be a non-empty string")
             return 1
-        BUILD_CONFIG["default_test_target"] = test_target
+        manager.set_default_test_target(test_target)
 
     test_targets = data.get("test_targets")
     if test_targets is not None:
@@ -278,28 +435,28 @@ def _apply_config_file(path: Path) -> int:
                 error("config test_targets must be a list of non-empty strings")
                 return 1
             normalized_targets.append(entry)
-        BUILD_CONFIG["test_targets"] = normalized_targets
+        manager.set_test_targets(normalized_targets)
 
     dependency_file = data.get("dependency_file")
     if dependency_file is not None:
         if not isinstance(dependency_file, str) or not dependency_file.strip():
             error("config dependency_file must be a non-empty string")
             return 1
-        BUILD_CONFIG["dependency_file"] = Path(dependency_file)
+        manager.set_dependency_file(Path(dependency_file))
 
     local_fn = data.get("dependency_local_function")
     if local_fn is not None:
         if not isinstance(local_fn, str) or not local_fn.strip():
             error("config dependency_local_function must be a non-empty string")
             return 1
-        BUILD_CONFIG["dependency_local_function"] = local_fn
+        manager.set_dependency_local_function(local_fn)
 
     fetch_fn = data.get("dependency_fetch_function")
     if fetch_fn is not None:
         if not isinstance(fetch_fn, str) or not fetch_fn.strip():
             error("config dependency_fetch_function must be a non-empty string")
             return 1
-        BUILD_CONFIG["dependency_fetch_function"] = fetch_fn
+        manager.set_dependency_fetch_function(fetch_fn)
 
     project = data.get("project")
     if project is not None:
@@ -505,39 +662,44 @@ def _apply_config_file(path: Path) -> int:
             normalized["extra_cmake_lines"] = normalized_lines
 
         if normalized:
-            current = cast(ProjectConfigOverrides, BUILD_CONFIG.get("project") or {})
+            current = manager.project or {}
             current.update(normalized)
-            BUILD_CONFIG["project"] = current
+            manager.set_project(current)
 
     return 0
 
 
 def _apply_env_overrides() -> None:
+    manager = globals()["config_manager"]
     build_dir_override = os.environ.get("BUILD_DIR")
     if build_dir_override:
-        BUILD_CONFIG["build_dir"] = Path(build_dir_override)
+        manager.set_build_dir(Path(build_dir_override))
     main_target_override = os.environ.get("MAIN_TARGET")
     if main_target_override:
-        current = BUILD_CONFIG.get("project") or {}
+        current = manager.project or {}
         current["main_target"] = main_target_override
-        BUILD_CONFIG["project"] = current
+        manager.set_project(current)
     test_target_override = os.environ.get("TEST_TARGET")
     if test_target_override:
-        BUILD_CONFIG["default_test_target"] = test_target_override
+        manager.set_default_test_target(test_target_override)
     test_targets_override = os.environ.get("TEST_TARGETS")
     if test_targets_override:
-        BUILD_CONFIG["test_targets"] = [
-            entry.strip() for entry in test_targets_override.split(",") if entry.strip()
-        ]
+        manager.set_test_targets(
+            [
+                entry.strip()
+                for entry in test_targets_override.split(",")
+                if entry.strip()
+            ]
+        )
     dependency_file_override = os.environ.get("DEPENDENCY_FILE")
     if dependency_file_override:
-        BUILD_CONFIG["dependency_file"] = Path(dependency_file_override)
+        manager.set_dependency_file(Path(dependency_file_override))
     local_fn_override = os.environ.get("DEPENDENCY_LOCAL_FUNCTION")
     if local_fn_override:
-        BUILD_CONFIG["dependency_local_function"] = local_fn_override
+        manager.set_dependency_local_function(local_fn_override)
     fetch_fn_override = os.environ.get("DEPENDENCY_FETCH_FUNCTION")
     if fetch_fn_override:
-        BUILD_CONFIG["dependency_fetch_function"] = fetch_fn_override
+        manager.set_dependency_fetch_function(fetch_fn_override)
 
 
 def _discover_config_path(start_dir: Path, names: Sequence[str]) -> Optional[Path]:
@@ -591,44 +753,54 @@ def _resolve_dependency_file(
     return candidate_real, cmake_path, cmake_is_abs
 
 
-def _resolve_config_paths(project_root: Path) -> int:
+def _resolve_config_paths(
+    project_root: Path, config_manager: Optional[BuildConfigManager] = None
+) -> int:
     """Populate resolved paths for the current configuration."""
-    BUILD_CONFIG["project_root"] = project_root
+    manager = (
+        config_manager if config_manager is not None else globals()["config_manager"]
+    )
+    manager.set_project_root(project_root)
 
-    build_dir = BUILD_CONFIG["build_dir"].expanduser()
+    build_dir = manager.build_dir.expanduser()
     if not build_dir.is_absolute():
         build_dir = project_root / build_dir
-    BUILD_CONFIG["build_dir_resolved"] = build_dir
+    manager.set_build_dir_resolved(build_dir)
 
-    resolved = _resolve_dependency_file(project_root, BUILD_CONFIG["dependency_file"])
+    resolved = _resolve_dependency_file(project_root, manager.dependency_file)
     if not resolved:
         return 1
     dependency_file, cmake_path, cmake_is_abs = resolved
-    BUILD_CONFIG["dependency_file_resolved"] = dependency_file
-    BUILD_CONFIG["dependency_file_cmake"] = cmake_path
-    BUILD_CONFIG["dependency_file_cmake_abs"] = cmake_is_abs
+    manager.set_dependency_file_resolved(dependency_file)
+    manager.set_dependency_file_cmake(cmake_path)
+    manager.set_dependency_file_cmake_abs(cmake_is_abs)
     return 0
 
 
 def _config_for_write(
     project_override: Optional[ProjectConfigOverrides] = None,
+    config_manager: Optional[BuildConfigManager] = None,
 ) -> WriteConfig:
-    project = _resolve_project_config()
+    manager = (
+        config_manager if config_manager is not None else globals()["config_manager"]
+    )
+    project = _resolve_project_config(manager)
     if project_override:
         project.update(project_override)
     return {
-        "build_dir": BUILD_CONFIG["build_dir"],
-        "default_test_target": BUILD_CONFIG["default_test_target"],
-        "test_targets": BUILD_CONFIG["test_targets"],
-        "dependency_file": BUILD_CONFIG["dependency_file"],
-        "dependency_local_function": BUILD_CONFIG["dependency_local_function"],
-        "dependency_fetch_function": BUILD_CONFIG["dependency_fetch_function"],
+        "build_dir": manager.build_dir,
+        "default_test_target": manager.default_test_target,
+        "test_targets": manager.test_targets,
+        "dependency_file": manager.dependency_file,
+        "dependency_local_function": manager.dependency_local_function,
+        "dependency_fetch_function": manager.dependency_fetch_function,
         "project": project,
     }
 
 
 def build_dir() -> Path:
-    return BUILD_CONFIG["build_dir_resolved"] or BUILD_CONFIG["build_dir"]
+    manager = globals()["config_manager"]
+    return manager.build_dir_resolved or manager.build_dir
 
 
 def _is_dangerous_delete_target(path: Union[Path, str]) -> bool:
@@ -644,7 +816,7 @@ def _is_dangerous_delete_target(path: Union[Path, str]) -> bool:
     except OSError:
         if resolved == Path.home().absolute():
             return True
-    project_root = BUILD_CONFIG.get("project_root")
+    project_root = globals()["config_manager"].project_root
     if project_root:
         try:
             if resolved == Path(project_root).resolve():
@@ -658,7 +830,7 @@ def _is_dangerous_delete_target(path: Union[Path, str]) -> bool:
 def clean_build_dir() -> int:
     """Remove the build directory if it is safe to do so."""
     path = build_dir()
-    project_root = BUILD_CONFIG.get("project_root")
+    project_root = globals()["config_manager"].project_root
     if not project_root:
         error("project root is not set; refusing to remove build dir")
         return 1
@@ -695,7 +867,7 @@ def cmake_configure(compiler: Optional[str] = None) -> int:
         [
             "cmake",
             "-S",
-            str(BUILD_CONFIG["project_root"] or Path.cwd()),
+            str(globals()["config_manager"].project_root or Path.cwd()),
             "-B",
             str(build_dir()),
             "-G",
@@ -1185,20 +1357,22 @@ def usage() -> None:
 
 
 def _dependency_file_path() -> Path:
-    return BUILD_CONFIG["dependency_file_resolved"] or BUILD_CONFIG["dependency_file"]
+    manager = globals()["config_manager"]
+    return manager.dependency_file_resolved or manager.dependency_file
 
 
 def _ensure_dependency_file() -> None:
     path = _dependency_file_path()
     if path.exists():
         return
+    manager = globals()["config_manager"]
     header = [
         "# This file is managed by pycmkr -adddep.",
         "# Add custom dependencies with the helpers below.",
         "#",
         "# Examples:",
-        f'#   {BUILD_CONFIG["dependency_local_function"]}("raylib")',
-        f'#   {BUILD_CONFIG["dependency_fetch_function"]}("raylib" "https://github.com/raysan5/raylib.git")',
+        f'#   {manager.dependency_local_function}("raylib")',
+        f'#   {manager.dependency_fetch_function}("raylib" "https://github.com/raysan5/raylib.git")',
         "",
     ]
     _write_text_file(path, "\n".join(header) + "\n")
@@ -1212,12 +1386,13 @@ def _dependency_exists(name: str) -> bool:
         contents = path.read_text(encoding="utf-8")
     except OSError:
         return False
+    manager = globals()["config_manager"]
     escaped_name = name.replace("\\", "\\\\").replace('"', '\\"')
     local_pattern = re.compile(
-        rf'^\s*{re.escape(BUILD_CONFIG["dependency_local_function"])}\s*\(\s*"{re.escape(escaped_name)}"\s*\)'
+        rf'^\s*{re.escape(manager.dependency_local_function)}\s*\(\s*"{re.escape(escaped_name)}"\s*\)'
     )
     fetch_pattern = re.compile(
-        rf'^\s*{re.escape(BUILD_CONFIG["dependency_fetch_function"])}\s*\(\s*"{re.escape(escaped_name)}"\s*(,|\))'
+        rf'^\s*{re.escape(manager.dependency_fetch_function)}\s*\(\s*"{re.escape(escaped_name)}"\s*(,|\))'
     )
     for line in contents.splitlines():
         stripped = line.strip()
@@ -1354,17 +1529,16 @@ def _add_dependency(name: str, git_url: Optional[str]) -> int:
     _ensure_dependency_file()
     path = _dependency_file_path()
     escaped_name = _cmake_escape(name)
+    manager = globals()["config_manager"]
     try:
         with path.open("a", encoding="utf-8") as handle:
             if git_url:
                 escaped_url = _cmake_escape(git_url)
                 handle.write(
-                    f'{BUILD_CONFIG["dependency_fetch_function"]}("{escaped_name}" "{escaped_url}")\n'
+                    f'{manager.dependency_fetch_function}("{escaped_name}" "{escaped_url}")\n'
                 )
             else:
-                handle.write(
-                    f'{BUILD_CONFIG["dependency_local_function"]}("{escaped_name}")\n'
-                )
+                handle.write(f'{manager.dependency_local_function}("{escaped_name}")\n')
     except OSError as exc:
         error(f"failed to update {path}: {exc}")
         return 1
@@ -1512,7 +1686,7 @@ def main() -> int:
             return 2
 
     if config_candidate:
-        BUILD_CONFIG["config_path"] = config_candidate
+        globals()["config_manager"].set_config_path(config_candidate)
         if config_candidate.exists():
             result = _apply_config_file(config_candidate)
             if result != 0:

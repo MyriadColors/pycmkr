@@ -29,16 +29,16 @@ def test_apply_config_file_sets_fields(tmp_path):
     result = main._apply_config_file(path)
 
     assert result == 0
-    assert main.BUILD_CONFIG["build_dir"] == Path("out")
-    assert main.BUILD_CONFIG["default_test_target"] == "unit"
-    assert main.BUILD_CONFIG["test_targets"] == ["unit", "integration"]
-    assert main.BUILD_CONFIG["dependency_file"] == Path("deps.cmake")
-    assert main.BUILD_CONFIG["dependency_local_function"] == "local_dep"
-    assert main.BUILD_CONFIG["dependency_fetch_function"] == "fetch_dep"
-    assert main.BUILD_CONFIG["project"]["name"] == "Demo"
-    assert main.BUILD_CONFIG["project"]["main_target"] == "demo"
-    assert main.BUILD_CONFIG["project"]["languages"] == ["CXX"]
-    assert main.BUILD_CONFIG["project"]["main_sources"] == ["main.cpp"]
+    assert main.config_manager.build_dir == Path("out")
+    assert main.config_manager.default_test_target == "unit"
+    assert main.config_manager.test_targets == ["unit", "integration"]
+    assert main.config_manager.dependency_file == Path("deps.cmake")
+    assert main.config_manager.dependency_local_function == "local_dep"
+    assert main.config_manager.dependency_fetch_function == "fetch_dep"
+    assert main.config_manager.project["name"] == "Demo"
+    assert main.config_manager.project["main_target"] == "demo"
+    assert main.config_manager.project["languages"] == ["CXX"]
+    assert main.config_manager.project["main_sources"] == ["main.cpp"]
 
 
 def test_apply_config_file_rejects_invalid_test_targets(tmp_path):
@@ -70,13 +70,13 @@ def test_apply_env_overrides(monkeypatch):
 
     main._apply_env_overrides()
 
-    assert main.BUILD_CONFIG["build_dir"] == Path("custom_build")
-    assert main.BUILD_CONFIG["default_test_target"] == "unit_tests"
-    assert main.BUILD_CONFIG["test_targets"] == ["unit_tests", "integration_tests"]
-    assert main.BUILD_CONFIG["dependency_file"] == Path("deps.cmake")
-    assert main.BUILD_CONFIG["dependency_local_function"] == "local_dep"
-    assert main.BUILD_CONFIG["dependency_fetch_function"] == "fetch_dep"
-    assert main.BUILD_CONFIG["project"]["main_target"] == "app"
+    assert main.config_manager.build_dir == Path("custom_build")
+    assert main.config_manager.default_test_target == "unit_tests"
+    assert main.config_manager.test_targets == ["unit_tests", "integration_tests"]
+    assert main.config_manager.dependency_file == Path("deps.cmake")
+    assert main.config_manager.dependency_local_function == "local_dep"
+    assert main.config_manager.dependency_fetch_function == "fetch_dep"
+    assert main.config_manager.project["main_target"] == "app"
 
 
 def test_discover_config_path(tmp_path):
@@ -96,7 +96,7 @@ def test_resolve_project_config_defaults_and_sanitizes_name(tmp_path, monkeypatc
     project_root = tmp_path / "My Project!"
     project_root.mkdir()
     monkeypatch.chdir(project_root)
-    main.BUILD_CONFIG["project"] = {"name": "", "languages": [], "main_sources": []}
+    main.config_manager.set_project({"name": "", "languages": [], "main_sources": []})
 
     result = main._resolve_project_config()
 
@@ -106,11 +106,13 @@ def test_resolve_project_config_defaults_and_sanitizes_name(tmp_path, monkeypatc
 
 
 def test_resolve_project_config_sanitizes_explicit_name():
-    main.BUILD_CONFIG["project"] = {
-        "name": "My Project!",
-        "languages": ["C"],
-        "main_sources": ["main.c"],
-    }
+    main.config_manager.set_project(
+        {
+            "name": "My Project!",
+            "languages": ["C"],
+            "main_sources": ["main.c"],
+        }
+    )
 
     result = main._resolve_project_config()
 
@@ -219,9 +221,9 @@ def test_run_executable_missing_exits(tmp_path):
 
 def test_dependency_exists_ignores_comments_and_matches(tmp_path):
     deps_path = tmp_path / "dependencies.cmake"
-    main.BUILD_CONFIG["dependency_file"] = deps_path
-    main.BUILD_CONFIG["dependency_local_function"] = "local_dep"
-    main.BUILD_CONFIG["dependency_fetch_function"] = "fetch_dep"
+    main.config_manager.set_dependency_file(deps_path)
+    main.config_manager.set_dependency_local_function("local_dep")
+    main.config_manager.set_dependency_fetch_function("fetch_dep")
 
     deps_path.write_text('# local_dep("raylib")\n', encoding="utf-8")
 

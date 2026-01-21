@@ -1,4 +1,3 @@
-import copy
 import sys
 import pytest  # type: ignore[import-not-found]
 import main
@@ -11,10 +10,10 @@ if str(ROOT) not in sys.path:
 
 @pytest.fixture(autouse=True)
 def reset_build_config():
-    original = copy.deepcopy(main.BUILD_CONFIG)
+    original_manager = main.BuildConfigManager.from_dict(main.config_manager.to_dict())
+    main.config_manager = main.BuildConfigManager()
     yield
-    main.BUILD_CONFIG.clear()
-    main.BUILD_CONFIG.update(copy.deepcopy(original))
+    main.config_manager = original_manager
 
 
 def pytest_addoption(parser: pytest.Parser) -> None:
@@ -27,7 +26,9 @@ def pytest_addoption(parser: pytest.Parser) -> None:
     )
 
 
-def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
+def pytest_collection_modifyitems(
+    config: pytest.Config, items: list[pytest.Item]
+) -> None:
     selected = config.getoption("--type")
     if selected == "all":
         return
