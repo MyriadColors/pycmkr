@@ -8,6 +8,15 @@ import pytest
 import main
 
 
+@pytest.fixture
+def reset_config_manager():
+    """Reset config_manager to defaults before each test."""
+    original = main.config_manager
+    main.config_manager = main.BuildConfigManager()
+    yield
+    main.config_manager = original
+
+
 def test_apply_config_file_sets_fields(tmp_path):
     config = {
         "build_dir": "out",
@@ -328,3 +337,362 @@ def test_main_parses_test_target(tmp_path, monkeypatch):
 
     assert result == 0
     assert targets["value"] == ["unit_tests"]
+
+
+def test_validate_non_empty_string_valid_string(reset_config_manager):
+    code, value = main._validate_non_empty_string("test", "field")
+    assert code == 0
+    assert value == "test"
+
+
+def test_validate_non_empty_string_none_value(reset_config_manager):
+    code, value = main._validate_non_empty_string(None, "field")
+    assert code == 0
+    assert value is None
+
+
+def test_validate_non_empty_string_empty_string(reset_config_manager):
+    code, value = main._validate_non_empty_string("", "field")
+    assert code == 1
+    assert value is None
+
+
+def test_validate_non_empty_string_whitespace_only(reset_config_manager):
+    code, value = main._validate_non_empty_string("  ", "field")
+    assert code == 1
+    assert value is None
+
+
+def test_validate_non_empty_string_wrong_type_int(reset_config_manager):
+    code, value = main._validate_non_empty_string(123, "field")
+    assert code == 1
+    assert value is None
+
+
+def test_validate_non_empty_string_wrong_type_list(reset_config_manager):
+    code, value = main._validate_non_empty_string(["test"], "field")
+    assert code == 1
+    assert value is None
+
+
+def test_validate_string_list_valid(reset_config_manager):
+    code, value = main._validate_string_list(["a", "b", "c"], "field")
+    assert code == 0
+    assert value == ["a", "b", "c"]
+
+
+def test_validate_string_list_none_value(reset_config_manager):
+    code, value = main._validate_string_list(None, "field")
+    assert code == 0
+    assert value is None
+
+
+def test_validate_string_list_empty_allowed(reset_config_manager):
+    code, value = main._validate_string_list([], "field", allow_empty=True)
+    assert code == 0
+    assert value == []
+
+
+def test_validate_string_list_empty_not_allowed(reset_config_manager):
+    code, value = main._validate_string_list([], "field", allow_empty=False)
+    assert code == 1
+    assert value is None
+
+
+def test_validate_string_list_contains_empty_string(reset_config_manager):
+    code, value = main._validate_string_list(["", "a"], "field")
+    assert code == 1
+    assert value is None
+
+
+def test_validate_string_list_contains_whitespace_string(reset_config_manager):
+    code, value = main._validate_string_list(["  "], "field")
+    assert code == 1
+    assert value is None
+
+
+def test_validate_string_list_wrong_type_not_list(reset_config_manager):
+    code, value = main._validate_string_list("not a list", "field")
+    assert code == 1
+    assert value is None
+
+
+def test_validate_string_list_contains_int(reset_config_manager):
+    code, value = main._validate_string_list(["a", 1], "field")
+    assert code == 1
+    assert value is None
+
+
+def test_validate_standard_string_valid(reset_config_manager):
+    code, value = main._validate_standard("23", "field")
+    assert code == 0
+    assert value == "23"
+
+
+def test_validate_standard_int_valid(reset_config_manager):
+    code, value = main._validate_standard(23, "field")
+    assert code == 0
+    assert value == "23"
+
+
+def test_validate_standard_whitespace_string(reset_config_manager):
+    code, value = main._validate_standard(" 23 ", "field")
+    assert code == 0
+    assert value == "23"
+
+
+def test_validate_standard_none_not_allowed(reset_config_manager):
+    code, value = main._validate_standard(None, "field", allow_none=False)
+    assert code == 1
+    assert value is None
+
+
+def test_validate_standard_none_allowed(reset_config_manager):
+    code, value = main._validate_standard(None, "field", allow_none=True)
+    assert code == 0
+    assert value is None
+
+
+def test_validate_standard_empty_string(reset_config_manager):
+    code, value = main._validate_standard("", "field")
+    assert code == 1
+    assert value is None
+
+
+def test_validate_standard_wrong_type_list(reset_config_manager):
+    code, value = main._validate_standard([], "field")
+    assert code == 1
+    assert value is None
+
+
+def test_validate_standard_int_conversion_17(reset_config_manager):
+    code, value = main._validate_standard(17, "field")
+    assert code == 0
+    assert value == "17"
+
+
+def test_validate_optional_string_valid(reset_config_manager):
+    code, value = main._validate_optional_string("foo", "field")
+    assert code == 0
+    assert value == "foo"
+
+
+def test_validate_optional_string_none_value(reset_config_manager):
+    code, value = main._validate_optional_string(None, "field")
+    assert code == 0
+    assert value is None
+
+
+def test_validate_optional_string_empty_allowed(reset_config_manager):
+    code, value = main._validate_optional_string("", "field")
+    assert code == 0
+    assert value == ""
+
+
+def test_validate_optional_string_whitespace_allowed(reset_config_manager):
+    code, value = main._validate_optional_string("  ", "field")
+    assert code == 0
+    assert value == "  "
+
+
+def test_validate_optional_string_wrong_type(reset_config_manager):
+    code, value = main._validate_optional_string(123, "field")
+    assert code == 1
+    assert value is None
+
+
+def test_validate_test_target_valid(reset_config_manager):
+    code, value = main._validate_test_target({"name": "test", "sources": ["test.c"]}, 0)
+    assert code == 0
+    assert value == {"name": "test", "sources": ["test.c"]}
+
+
+def test_validate_test_target_missing_name(reset_config_manager):
+    code, value = main._validate_test_target({"sources": ["test.c"]}, 0)
+    assert code == 1
+    assert value is None
+
+
+def test_validate_test_target_missing_sources(reset_config_manager):
+    code, value = main._validate_test_target({"name": "test"}, 0)
+    assert code == 1
+    assert value is None
+
+
+def test_validate_test_target_invalid_name_type(reset_config_manager):
+    code, value = main._validate_test_target({"name": 123, "sources": ["test.c"]}, 0)
+    assert code == 1
+    assert value is None
+
+
+def test_validate_test_target_empty_name(reset_config_manager):
+    code, value = main._validate_test_target({"name": "", "sources": ["test.c"]}, 0)
+    assert code == 1
+    assert value is None
+
+
+def test_validate_test_target_empty_sources(reset_config_manager):
+    code, value = main._validate_test_target({"name": "test", "sources": []}, 0)
+    assert code == 1
+    assert value is None
+
+
+def test_validate_test_target_sources_contains_empty(reset_config_manager, capsys):
+    code, value = main._validate_test_target({"name": "test", "sources": [""]}, 5)
+    assert code == 1
+    assert value is None
+    captured = capsys.readouterr()
+    assert "[5]" in captured.err
+
+
+def test_validate_test_target_error_includes_index(reset_config_manager, capsys):
+    code, value = main._validate_test_target({"name": "", "sources": ["test.c"]}, 2)
+    assert code == 1
+    assert value is None
+    captured = capsys.readouterr()
+    assert "[2]" in captured.err
+
+
+def test_apply_build_level_config_valid_all_fields(reset_config_manager):
+    data = {
+        "build_dir": "out",
+        "default_test_target": "unit",
+        "test_targets": ["unit", "integration"],
+        "dependency_file": "deps.cmake",
+        "dependency_local_function": "local_dep",
+        "dependency_fetch_function": "fetch_dep",
+    }
+    result = main._apply_build_level_config(data, main.config_manager)
+    assert result == 0
+    assert main.config_manager.build_dir == Path("out")
+    assert main.config_manager.default_test_target == "unit"
+    assert main.config_manager.test_targets == ["unit", "integration"]
+    assert main.config_manager.dependency_file == Path("deps.cmake")
+    assert main.config_manager.dependency_local_function == "local_dep"
+    assert main.config_manager.dependency_fetch_function == "fetch_dep"
+
+
+def test_apply_build_level_config_partial_fields(reset_config_manager):
+    data = {"build_dir": "build"}
+    result = main._apply_build_level_config(data, main.config_manager)
+    assert result == 0
+    assert main.config_manager.build_dir == Path("build")
+
+
+def test_apply_build_level_config_invalid_build_dir(reset_config_manager):
+    data = {"build_dir": ""}
+    result = main._apply_build_level_config(data, main.config_manager)
+    assert result == 1
+
+
+def test_apply_build_level_config_invalid_test_targets_list(reset_config_manager):
+    data = {"test_targets": "not a list"}
+    result = main._apply_build_level_config(data, main.config_manager)
+    assert result == 1
+
+
+def test_apply_build_level_config_deprecated_main_target(reset_config_manager):
+    data = {"main_target": "app"}
+    result = main._apply_build_level_config(data, main.config_manager)
+    assert result == 1
+
+
+def test_validate_and_normalize_project_valid_all_fields(reset_config_manager):
+    project = {
+        "name": "Demo",
+        "main_target": "demo",
+        "languages": ["CXX"],
+        "main_sources": ["main.cpp"],
+        "include_dirs": ["include"],
+        "definitions": ["DEBUG"],
+        "compile_options": ["-Wall"],
+        "link_libraries": ["m"],
+        "min_cmake": "3.10",
+        "c_standard": "23",
+        "cxx_standard": "20",
+        "extra_cmake_lines": ["# extra"],
+        "test_targets": [{"name": "unit", "sources": ["unit.c"]}],
+    }
+    code, normalized = main._validate_and_normalize_project(project)
+    assert code == 0
+    assert normalized["name"] == "Demo"
+    assert normalized["main_target"] == "demo"
+    assert normalized["languages"] == ["CXX"]
+    assert normalized["main_sources"] == ["main.cpp"]
+    assert normalized["include_dirs"] == ["include"]
+    assert normalized["definitions"] == ["DEBUG"]
+    assert normalized["compile_options"] == ["-Wall"]
+    assert normalized["link_libraries"] == ["m"]
+    assert normalized["min_cmake"] == "3.10"
+    assert normalized["c_standard"] == "23"
+    assert normalized["cxx_standard"] == "20"
+    assert normalized["extra_cmake_lines"] == ["# extra"]
+    assert normalized["test_targets"] == [{"name": "unit", "sources": ["unit.c"]}]
+
+
+def test_validate_and_normalize_project_partial_fields(reset_config_manager):
+    project = {
+        "name": "Demo",
+        "main_target": "demo",
+        "languages": ["CXX"],
+        "main_sources": ["main.cpp"],
+    }
+    code, normalized = main._validate_and_normalize_project(project)
+    assert code == 0
+    assert normalized["name"] == "Demo"
+    assert normalized["main_target"] == "demo"
+    assert normalized["languages"] == ["CXX"]
+    assert normalized["main_sources"] == ["main.cpp"]
+    assert "include_dirs" not in normalized or normalized.get("include_dirs") is None
+
+
+def test_validate_and_normalize_project_invalid_name(reset_config_manager):
+    project = {
+        "name": "",
+        "main_target": "demo",
+        "languages": ["CXX"],
+        "main_sources": ["main.cpp"],
+    }
+    code, normalized = main._validate_and_normalize_project(project)
+    assert code == 1
+    assert normalized == {}
+
+
+def test_validate_and_normalize_project_empty_languages(reset_config_manager):
+    project = {
+        "name": "Demo",
+        "main_target": "demo",
+        "languages": [],
+        "main_sources": ["main.cpp"],
+    }
+    code, normalized = main._validate_and_normalize_project(project)
+    assert code == 1
+    assert normalized == {}
+
+
+def test_validate_and_normalize_project_invalid_test_target_entry(reset_config_manager):
+    project = {
+        "name": "Demo",
+        "main_target": "demo",
+        "languages": ["CXX"],
+        "main_sources": ["main.cpp"],
+        "test_targets": [{"name": "", "sources": ["unit.c"]}],
+    }
+    code, normalized = main._validate_and_normalize_project(project)
+    assert code == 1
+    assert normalized == {}
+
+
+def test_validate_and_normalize_project_extra_cmake_lines_allow_empty(
+    reset_config_manager,
+):
+    project = {
+        "name": "Demo",
+        "main_target": "demo",
+        "languages": ["CXX"],
+        "main_sources": ["main.cpp"],
+        "extra_cmake_lines": [""],
+    }
+    code, normalized = main._validate_and_normalize_project(project)
+    assert code == 0
+    assert normalized["extra_cmake_lines"] == [""]
