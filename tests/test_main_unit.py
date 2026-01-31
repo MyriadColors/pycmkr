@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-import main
+from pycmkr import cli as main
 
 
 @pytest.fixture
@@ -224,8 +224,9 @@ def test_run_executable_missing_exits(tmp_path):
         "project": {"main_target": "app"},
     }
 
-    with pytest.raises(SystemExit):
-        main.run_executable(config, [])
+    result = main.run_executable(config, [])
+
+    assert result == 1
 
 
 def test_dependency_exists_ignores_comments_and_matches(tmp_path):

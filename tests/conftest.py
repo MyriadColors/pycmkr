@@ -1,11 +1,14 @@
 import sys
-import pytest  # type: ignore[import-not-found]
-import main
 from pathlib import Path
 
+import pytest  # type: ignore[import-not-found]
+
 ROOT = Path(__file__).resolve().parents[1]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
+SRC = ROOT / "src"
+if str(SRC) not in sys.path:
+    sys.path.insert(0, str(SRC))
+
+from pycmkr import cli as main  # noqa: E402
 
 
 @pytest.fixture(autouse=True)

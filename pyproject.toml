@@ -28,7 +28,7 @@ dependencies = []
 dev = ["pytest"]
 
 [project.scripts]
-pycmkr = "main:main"
+pycmkr = "pycmkr.cli:main"
 
 [project.urls]
 Homepage = "https://github.com/MyriadColors/pycmkr"
@@ -40,4 +40,4 @@ markers = ["integration: requires cmake/ninja"]
 testpaths = ["tests"]
 
 [tool.hatch.build.targets.wheel]
-include = ["main.py"]
+packages = ["src/pycmkr"]
