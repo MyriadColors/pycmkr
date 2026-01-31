@@ -494,21 +494,53 @@ def _validate_test_target(entry: Any, index: int) -> TestTargetValidationResult:
     if sources is None:
         error(f"config project.test_targets[{index}].sources is required")
         return (1, None)
-    if not isinstance(sources, list):
-        error(f"config project.test_targets[{index}].sources must be a list of strings")
+    result, validated_sources = _validate_string_list(
+        sources, f"project.test_targets[{index}].sources", allow_empty=False
+    )
+    if result or validated_sources is None:
         return (1, None)
-    normalized_sources = []
-    for source in sources:
-        if not isinstance(source, str) or not source:
-            error(
-                f"config project.test_targets[{index}].sources must be a list of non-empty strings"
-            )
-            return (1, None)
-        normalized_sources.append(source)
-    if not normalized_sources:
-        error(f"config project.test_targets[{index}].sources must not be empty")
-        return (1, None)
-    return (0, {"name": name, "sources": normalized_sources})
+    return (0, {"name": name, "sources": validated_sources})
+
+
+def _apply_string_list_field(
+    project: dict,
+    normalized: ProjectConfigOverrides,
+    key: str,
+    field_name: str,
+    allow_empty: bool = True,
+) -> int:
+    value = project.get(key)
+    result, validated_list = _validate_string_list(
+        value, field_name, allow_empty=allow_empty
+    )
+    if result:
+        return 1
+    if validated_list is not None:
+        normalized[key] = validated_list
+    return 0
+
+
+def _apply_optional_string_list_field(
+    project: dict,
+    normalized: ProjectConfigOverrides,
+    key: str,
+    field_name: str,
+) -> int:
+    value = project.get(key)
+    if value is None:
+        return 0
+    if not isinstance(value, list):
+        error(f"config {field_name} must be a list of strings")
+        return 1
+    normalized_list = []
+    for entry in value:
+        result, validated = _validate_optional_string(entry, field_name)
+        if result:
+            return 1
+        if validated is not None:
+            normalized_list.append(validated)
+    normalized[key] = normalized_list
+    return 0
 
 
 def _apply_build_level_config(data: dict, manager: BuildConfigManager) -> int:
@@ -639,13 +671,15 @@ def _validate_and_normalize_project(project: dict) -> ProjectValidationResult:
         normalized["main_target"] = validated
 
     main_sources = project.get("main_sources")
-    result, validated_list = _validate_string_list(
-        main_sources, "project.main_sources", allow_empty=False
+    result = _apply_string_list_field(
+        project,
+        normalized,
+        "main_sources",
+        "project.main_sources",
+        allow_empty=False,
     )
     if result:
         return (1, {})
-    if validated_list is not None:
-        normalized["main_sources"] = validated_list
 
     test_targets = project.get("test_targets")
     if test_targets is not None:
@@ -661,52 +695,39 @@ def _validate_and_normalize_project(project: dict) -> ProjectValidationResult:
         normalized["test_targets"] = normalized_tests
 
     include_dirs = project.get("include_dirs")
-    result, validated_list = _validate_string_list(include_dirs, "project.include_dirs")
+    result = _apply_string_list_field(
+        project, normalized, "include_dirs", "project.include_dirs"
+    )
     if result:
         return (1, {})
-    if validated_list is not None:
-        normalized["include_dirs"] = validated_list
 
     definitions = project.get("definitions")
-    result, validated_list = _validate_string_list(definitions, "project.definitions")
+    result = _apply_string_list_field(
+        project, normalized, "definitions", "project.definitions"
+    )
     if result:
         return (1, {})
-    if validated_list is not None:
-        normalized["definitions"] = validated_list
 
     compile_options = project.get("compile_options")
-    result, validated_list = _validate_string_list(
-        compile_options, "project.compile_options"
+    result = _apply_string_list_field(
+        project, normalized, "compile_options", "project.compile_options"
     )
     if result:
         return (1, {})
-    if validated_list is not None:
-        normalized["compile_options"] = validated_list
 
     link_libraries = project.get("link_libraries")
-    result, validated_list = _validate_string_list(
-        link_libraries, "project.link_libraries"
+    result = _apply_string_list_field(
+        project, normalized, "link_libraries", "project.link_libraries"
     )
     if result:
         return (1, {})
-    if validated_list is not None:
-        normalized["link_libraries"] = validated_list
 
     extra_lines = project.get("extra_cmake_lines")
-    if extra_lines is not None:
-        if not isinstance(extra_lines, list):
-            error("config project.extra_cmake_lines must be a list of strings")
-            return (1, {})
-        normalized_lines = []
-        for entry in extra_lines:
-            result, validated = _validate_optional_string(
-                entry, "project.extra_cmake_lines"
-            )
-            if result:
-                return (1, {})
-            if validated is not None:
-                normalized_lines.append(validated)
-        normalized["extra_cmake_lines"] = normalized_lines
+    result = _apply_optional_string_list_field(
+        project, normalized, "extra_cmake_lines", "project.extra_cmake_lines"
+    )
+    if result:
+        return (1, {})
 
     return (0, normalized)
 
