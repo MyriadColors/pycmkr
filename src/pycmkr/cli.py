@@ -318,6 +318,20 @@ def _normalize_path_spelling(path: Union[Path, str]) -> str:
     return os.path.normcase(os.path.normpath(str(path)))
 
 
+def _resolve_path(path: Union[Path, str]) -> Path:
+    try:
+        return Path(path).resolve()
+    except OSError:
+        return Path(path).absolute()
+
+
+def _expand_and_normalize(path: Union[Path, str], base_dir: Path) -> Tuple[Path, bool]:
+    candidate = Path(path).expanduser()
+    if candidate.is_absolute():
+        return candidate, True
+    return base_dir / candidate, False
+
+
 def _realpath_with_missing(path: Union[Path, str]) -> Path:
     path = Path(path)
     missing_parts = []
@@ -328,10 +342,7 @@ def _realpath_with_missing(path: Union[Path, str]) -> Path:
         if parent == current:
             break
         current = parent
-    try:
-        real_parent = current.resolve()
-    except OSError:
-        real_parent = current.absolute()
+    real_parent = _resolve_path(current)
     for name in reversed(missing_parts):
         real_parent = real_parent / name
     return real_parent
@@ -842,15 +853,8 @@ def _resolve_project_root(config_path: Optional[Union[Path, str]]) -> Path:
 def _resolve_dependency_file(
     project_root: Path, dependency_file: Union[Path, str]
 ) -> Optional[Tuple[Path, Path, bool]]:
-    dependency_file = Path(dependency_file).expanduser()
-    if dependency_file.is_absolute():
-        candidate = dependency_file
-        cmake_path = None
-        cmake_is_abs = True
-    else:
-        candidate = project_root / dependency_file
-        cmake_path = None
-        cmake_is_abs = False
+    candidate, cmake_is_abs = _expand_and_normalize(dependency_file, project_root)
+    cmake_path = None
 
     project_root_real = _realpath_with_missing(project_root)
     candidate_real = _realpath_with_missing(candidate)
@@ -877,9 +881,7 @@ def _resolve_config_paths(
     )
     manager.set_project_root(project_root)
 
-    build_dir = manager.build_dir.expanduser()
-    if not build_dir.is_absolute():
-        build_dir = project_root / build_dir
+    build_dir, _ = _expand_and_normalize(manager.build_dir, project_root)
     manager.set_build_dir_resolved(build_dir)
 
     resolved = _resolve_dependency_file(project_root, manager.dependency_file)
@@ -919,26 +921,15 @@ def build_dir() -> Path:
 
 
 def _is_dangerous_delete_target(path: Union[Path, str]) -> bool:
-    try:
-        resolved = Path(path).resolve()
-    except OSError:
-        resolved = Path(path).absolute()
+    resolved = _resolve_path(path)
     if resolved == Path(resolved.anchor):
         return True
-    try:
-        if resolved == Path.home().resolve():
-            return True
-    except OSError:
-        if resolved == Path.home().absolute():
-            return True
+    if resolved == _resolve_path(Path.home()):
+        return True
     project_root = globals()["config_manager"].project_root
     if project_root:
-        try:
-            if resolved == Path(project_root).resolve():
-                return True
-        except OSError:
-            if resolved == Path(project_root).absolute():
-                return True
+        if resolved == _resolve_path(project_root):
+            return True
     return False
 
 
@@ -1041,6 +1032,7 @@ def run_tests(config: ResolvedBuildConfig, targets: Sequence[str]) -> int:
 def _normalize_compiler_path(
     compiler: Optional[str],
 ) -> Tuple[Optional[str], bool]:
+    """Resolve a compiler string to a normalized path and existence flag."""
     if not compiler:
         return None, False
     resolved = shutil.which(compiler) if os.sep not in compiler else compiler
@@ -1052,6 +1044,7 @@ def _normalize_compiler_path(
 
 
 def _read_configured_compiler() -> Tuple[Optional[str], bool]:
+    """Read the configured compiler from the CMake cache, if present."""
     cache_path = build_dir() / CMAKE_CACHE_FILE_NAME
     if not cache_path.exists():
         return None, False
@@ -1069,6 +1062,7 @@ def _read_configured_compiler() -> Tuple[Optional[str], bool]:
 
 
 def _clean_if_compiler_mismatch(compiler: Optional[str]) -> None:
+    """Clean the build directory when configured and requested compilers differ."""
     if not compiler or not build_dir().exists():
         return
     configured, configured_exists = _read_configured_compiler()
@@ -1790,15 +1784,10 @@ def main() -> int:
         config_candidate = base_dir / known_configs[0]
         config_write_path = config_candidate
     elif config_path:
-        config_candidate = Path(config_path).expanduser()
-        if allow_missing_config and base_dir and not config_candidate.is_absolute():
-            config_candidate = base_dir / config_candidate
-        elif not config_candidate.is_absolute():
-            config_candidate = Path.cwd() / config_candidate
+        base = base_dir if allow_missing_config and base_dir else Path.cwd()
+        config_candidate, _ = _expand_and_normalize(config_path, base)
     elif config_env:
-        config_candidate = Path(config_env).expanduser()
-        if not config_candidate.is_absolute():
-            config_candidate = Path.cwd() / config_candidate
+        config_candidate, _ = _expand_and_normalize(config_env, Path.cwd())
     else:
         config_candidate = _discover_config_path(Path.cwd(), known_configs)
 
