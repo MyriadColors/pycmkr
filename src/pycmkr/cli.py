@@ -24,6 +24,25 @@ from typing import (
 )
 
 
+DEFAULT_BUILD_DIR = Path("build")
+DEFAULT_DEPENDENCY_FILE = Path("dependencies.cmake")
+DEFAULT_DEPENDENCY_LOCAL_FUNCTION = "project_add_local_dependency"
+DEFAULT_DEPENDENCY_FETCH_FUNCTION = "project_add_fetch_dependency"
+DEFAULT_PROJECT_NAME = "Project"
+DEFAULT_PROJECT_LANGUAGES = ["C"]
+DEFAULT_MIN_CMAKE = "3.20"
+DEFAULT_C_STANDARD = "23"
+DEFAULT_MAIN_TARGET = "main"
+DEFAULT_MAIN_SOURCE = "main.c"
+DEFAULT_CONFIG_FILE_NAME = "build_config.json"
+DEFAULT_CMAKE_GENERATOR = "Ninja"
+CMAKE_C_STANDARD_VAR = "CMAKE_C_STANDARD"
+CMAKE_CXX_STANDARD_VAR = "CMAKE_CXX_STANDARD"
+CMAKE_CACHE_FILE_NAME = "CMakeCache.txt"
+CMAKE_C_COMPILER_PREFIX = "CMAKE_C_COMPILER:"
+DEFAULT_EXECUTABLE_SUFFIX = ".exe"
+
+
 class ProjectTestTarget(TypedDict):
     name: str
     sources: list[str]
@@ -110,12 +129,12 @@ type TestTargetValidationResult = tuple[int, Optional[ProjectTestTarget]]
 class BuildConfigManager:
     def __init__(
         self,
-        build_dir: Path = Path("build"),
+        build_dir: Path = DEFAULT_BUILD_DIR,
         default_test_target: Optional[str] = None,
         test_targets: Optional[list[str]] = None,
-        dependency_file: Path = Path("dependencies.cmake"),
-        dependency_local_function: str = "project_add_local_dependency",
-        dependency_fetch_function: str = "project_add_fetch_dependency",
+        dependency_file: Path = DEFAULT_DEPENDENCY_FILE,
+        dependency_local_function: str = DEFAULT_DEPENDENCY_LOCAL_FUNCTION,
+        dependency_fetch_function: str = DEFAULT_DEPENDENCY_FETCH_FUNCTION,
         project: Optional[ProjectConfigOverrides] = None,
         project_root: Optional[Path] = None,
         build_dir_resolved: Optional[Path] = None,
@@ -336,18 +355,18 @@ config_manager = BuildConfigManager()
 
 def _sanitize_project_name(name: str) -> str:
     cleaned = re.sub(r"[^A-Za-z0-9_]", "_", name.strip())
-    return cleaned or "Project"
+    return cleaned or DEFAULT_PROJECT_NAME
 
 
 def _default_project_config() -> ProjectConfig:
     return {
-        "name": "Project",
-        "languages": ["C"],
-        "min_cmake": "3.20",
-        "c_standard": "23",
+        "name": DEFAULT_PROJECT_NAME,
+        "languages": list(DEFAULT_PROJECT_LANGUAGES),
+        "min_cmake": DEFAULT_MIN_CMAKE,
+        "c_standard": DEFAULT_C_STANDARD,
         "cxx_standard": None,
-        "main_target": "main",
-        "main_sources": ["main.c"],
+        "main_target": DEFAULT_MAIN_TARGET,
+        "main_sources": [DEFAULT_MAIN_SOURCE],
         "test_targets": [],
         "include_dirs": [],
         "definitions": [],
@@ -967,7 +986,7 @@ def cmake_configure(compiler: Optional[str] = None) -> int:
             "-B",
             str(build_dir()),
             "-G",
-            "Ninja",
+            DEFAULT_CMAKE_GENERATOR,
         ],
         env=env,
     )
@@ -990,7 +1009,7 @@ def run_executable(config: ResolvedBuildConfig, args: Sequence[str]) -> int:
     """Run the configured main executable."""
     exe_name = config["project"]["main_target"]
     if os.name == "nt":
-        exe_name = f"{exe_name}.exe"
+        exe_name = f"{exe_name}{DEFAULT_EXECUTABLE_SUFFIX}"
     exe_path = config["build_dir"] / exe_name
     if not exe_path.exists():
         error(f"missing executable at {exe_path}")
@@ -1002,7 +1021,9 @@ def run_executable(config: ResolvedBuildConfig, args: Sequence[str]) -> int:
 def run_tests(config: ResolvedBuildConfig, targets: Sequence[str]) -> int:
     """Build and run the configured test targets."""
     for target in targets:
-        test_name = f"{target}.exe" if os.name == "nt" else target
+        test_name = (
+            f"{target}{DEFAULT_EXECUTABLE_SUFFIX}" if os.name == "nt" else target
+        )
         test_path = config["build_dir"] / test_name
         result = cmake_build_target(target)
         if result != 0:
@@ -1031,13 +1052,13 @@ def _normalize_compiler_path(
 
 
 def _read_configured_compiler() -> Tuple[Optional[str], bool]:
-    cache_path = build_dir() / "CMakeCache.txt"
+    cache_path = build_dir() / CMAKE_CACHE_FILE_NAME
     if not cache_path.exists():
         return None, False
     try:
         with cache_path.open("r", encoding="utf-8") as handle:
             for line in handle:
-                if line.startswith("CMAKE_C_COMPILER:"):
+                if line.startswith(CMAKE_C_COMPILER_PREFIX):
                     value = line.split("=", 1)[1].strip()
                     if not value:
                         return None, False
@@ -1090,9 +1111,9 @@ def _render_cmakelists(
     lines.append("")
 
     if "C" in languages and project.get("c_standard"):
-        lines.append(f"set(CMAKE_C_STANDARD {project['c_standard']})")
+        lines.append(f"set({CMAKE_C_STANDARD_VAR} {project['c_standard']})")
     if "CXX" in languages and project.get("cxx_standard"):
-        lines.append(f"set(CMAKE_CXX_STANDARD {project['cxx_standard']})")
+        lines.append(f"set({CMAKE_CXX_STANDARD_VAR} {project['cxx_standard']})")
     if "C" in languages or "CXX" in languages:
         lines.append("")
 
@@ -1298,7 +1319,7 @@ def _render_cmakelists(
 
 
 def _render_main_source(project: ProjectConfig, path: Path) -> str:
-    name = project.get("name", "Project").replace('"', '\\"')
+    name = project.get("name", DEFAULT_PROJECT_NAME).replace('"', '\\"')
     suffix = path.suffix.lower()
     if suffix in {".cpp", ".cc", ".cxx", ".c++"}:
         return (
@@ -1356,7 +1377,7 @@ def _confirm_init_root(root_dir: Path) -> bool:
 
 
 def _infer_project_name(base_dir: Path) -> str:
-    name = base_dir.name or "Project"
+    name = base_dir.name or DEFAULT_PROJECT_NAME
     return name
 
 
@@ -1405,7 +1426,7 @@ def init_project(
         info(f"created {cmake_path}")
         created_any = True
 
-    main_sources = project.get("main_sources") or ["main.c"]
+    main_sources = project.get("main_sources") or [DEFAULT_MAIN_SOURCE]
     main_path = base_dir / main_sources[0]
     if not main_path.exists():
         result = _write_text_file(main_path, _render_main_source(project, main_path))
@@ -1447,7 +1468,7 @@ def usage() -> None:
     print("  pycmkr init MyProject")
     print("  pycmkr init ~/new_proj")
     print("  pycmkr init ~/coding/clang/new_proj")
-    print("  pycmkr build --config build_config.json")
+    print(f"  pycmkr build --config {DEFAULT_CONFIG_FILE_NAME}")
     print("  pycmkr adddep raylib")
     print("  pycmkr ad raylib https://github.com/raysan5/raylib.git")
 
@@ -1764,7 +1785,7 @@ def main() -> int:
     allow_missing_config = command == "init"
     config_write_path = None
     config_candidate = None
-    known_configs = ["build_config.json"]
+    known_configs = [DEFAULT_CONFIG_FILE_NAME]
     if command == "init" and base_dir and not config_path and not config_env:
         config_candidate = base_dir / known_configs[0]
         config_write_path = config_candidate
