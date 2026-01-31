@@ -345,6 +345,12 @@ def test_validate_non_empty_string_valid_string(reset_config_manager):
     assert value == "test"
 
 
+def test_validate_non_empty_string_strips_whitespace(reset_config_manager):
+    code, value = main._validate_non_empty_string("  test  ", "field")
+    assert code == 0
+    assert value == "test"
+
+
 def test_validate_non_empty_string_none_value(reset_config_manager):
     code, value = main._validate_non_empty_string(None, "field")
     assert code == 0

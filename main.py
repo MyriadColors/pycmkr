@@ -403,14 +403,14 @@ def _resolve_config(
 def _validate_non_empty_string(value: Any, field_name: str) -> StringValidationResult:
     """Validate value is a non-empty string.
 
-    Returns (0, string) if valid, (0, None) if value is None,
+    Returns (0, stripped_string) if valid, (0, None) if value is None,
     or (1, None) if invalid with error message printed.
-    Does NOT strip whitespace (Option C).
+    Strips whitespace (Option A).
     """
     if value is None:
         return (0, None)
     if isinstance(value, str) and value.strip():
-        return (0, value)
+        return (0, value.strip())
     error(f"config {field_name} must be a non-empty string")
     return (1, None)
 
