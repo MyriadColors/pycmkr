@@ -10,6 +10,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+import sysconfig
 from pathlib import Path
 from typing import (
     Any,
@@ -20,7 +21,6 @@ from typing import (
     Tuple,
     TypedDict,
     Union,
-    cast,
 )
 
 
@@ -41,6 +41,31 @@ CMAKE_CXX_STANDARD_VAR = "CMAKE_CXX_STANDARD"
 CMAKE_CACHE_FILE_NAME = "CMakeCache.txt"
 CMAKE_C_COMPILER_PREFIX = "CMAKE_C_COMPILER:"
 DEFAULT_EXECUTABLE_SUFFIX = ".exe"
+WINDOWS_BUILD_CONFIG_DIRS = ("Debug", "Release", "RelWithDebInfo", "MinSizeRel")
+
+
+def is_windows() -> bool:
+    return os.name == "nt"
+
+
+def is_macos() -> bool:
+    return sys.platform == "darwin"
+
+
+def is_linux() -> bool:
+    return sys.platform.startswith("linux")
+
+
+def exe_suffix() -> str:
+    suffix = sysconfig.get_config_var("EXE_SUFFIX")
+    if suffix:
+        return suffix
+    return DEFAULT_EXECUTABLE_SUFFIX if is_windows() else ""
+
+
+def exe_name(target: str) -> str:
+    suffix = exe_suffix()
+    return f"{target}{suffix}" if suffix else target
 
 
 class ProjectTestTarget(TypedDict):
@@ -151,9 +176,7 @@ class BuildConfigManager:
         self._dependency_file = dependency_file
         self._dependency_local_function = dependency_local_function
         self._dependency_fetch_function = dependency_fetch_function
-        self._project = (
-            project if project is not None else cast(ProjectConfigOverrides, {})
-        )
+        self._project: ProjectConfigOverrides = project if project is not None else {}
         self._project_root = project_root
         self._build_dir_resolved = build_dir_resolved
         self._dependency_file_resolved = dependency_file_resolved
@@ -253,24 +276,22 @@ class BuildConfigManager:
         self._config_path = value
 
     def to_dict(self) -> BuildConfig:
-        return cast(
-            BuildConfig,
-            {
-                "build_dir": self._build_dir,
-                "default_test_target": self._default_test_target,
-                "test_targets": self._test_targets,
-                "dependency_file": self._dependency_file,
-                "dependency_local_function": self._dependency_local_function,
-                "dependency_fetch_function": self._dependency_fetch_function,
-                "project": self._project,
-                "project_root": self._project_root,
-                "build_dir_resolved": self._build_dir_resolved,
-                "dependency_file_resolved": self._dependency_file_resolved,
-                "dependency_file_cmake": self._dependency_file_cmake,
-                "dependency_file_cmake_abs": self._dependency_file_cmake_abs,
-                "config_path": self._config_path,
-            },
-        )
+        data: BuildConfig = {
+            "build_dir": self._build_dir,
+            "default_test_target": self._default_test_target,
+            "test_targets": self._test_targets,
+            "dependency_file": self._dependency_file,
+            "dependency_local_function": self._dependency_local_function,
+            "dependency_fetch_function": self._dependency_fetch_function,
+            "project": self._project,
+            "project_root": self._project_root,
+            "build_dir_resolved": self._build_dir_resolved,
+            "dependency_file_resolved": self._dependency_file_resolved,
+            "dependency_file_cmake": self._dependency_file_cmake,
+            "dependency_file_cmake_abs": self._dependency_file_cmake_abs,
+            "config_path": self._config_path,
+        }
+        return data
 
     @classmethod
     def from_dict(cls, config: BuildConfig) -> "BuildConfigManager":
@@ -397,7 +418,23 @@ def _resolve_project_config(
     )
     defaults = _default_project_config()
     project = manager.project
-    merged = cast(ProjectConfig, {**defaults, **project})
+    merged: ProjectConfig = {
+        "name": project.get("name", defaults["name"]),
+        "languages": project.get("languages", defaults["languages"]),
+        "min_cmake": project.get("min_cmake", defaults["min_cmake"]),
+        "c_standard": project.get("c_standard", defaults["c_standard"]),
+        "cxx_standard": project.get("cxx_standard", defaults["cxx_standard"]),
+        "main_target": project.get("main_target", defaults["main_target"]),
+        "main_sources": project.get("main_sources", defaults["main_sources"]),
+        "test_targets": project.get("test_targets", defaults["test_targets"]),
+        "include_dirs": project.get("include_dirs", defaults["include_dirs"]),
+        "definitions": project.get("definitions", defaults["definitions"]),
+        "compile_options": project.get("compile_options", defaults["compile_options"]),
+        "link_libraries": project.get("link_libraries", defaults["link_libraries"]),
+        "extra_cmake_lines": project.get(
+            "extra_cmake_lines", defaults["extra_cmake_lines"]
+        ),
+    }
     if not project.get("name"):
         merged["name"] = _sanitize_project_name(Path.cwd().name)
     else:
@@ -416,15 +453,19 @@ def _resolve_config(
         config_manager if config_manager is not None else globals()["config_manager"]
     )
     project = _resolve_project_config(manager)
+    if manager.project_root is None:
+        raise RuntimeError("project root is not set; call _resolve_config_paths first")
+    if manager.dependency_file_cmake is None:
+        raise RuntimeError(
+            "dependency file path is not set; call _resolve_config_paths first"
+        )
     return {
-        "project_root": cast(Path, manager.project_root),
-        "build_dir": cast(Path, manager.build_dir_resolved or manager.build_dir),
+        "project_root": manager.project_root,
+        "build_dir": manager.build_dir_resolved or manager.build_dir,
         "default_test_target": manager.default_test_target,
         "test_targets": manager.test_targets,
-        "dependency_file": cast(
-            Path, manager.dependency_file_resolved or manager.dependency_file
-        ),
-        "dependency_file_cmake": cast(Path, manager.dependency_file_cmake),
+        "dependency_file": manager.dependency_file_resolved or manager.dependency_file,
+        "dependency_file_cmake": manager.dependency_file_cmake,
         "dependency_file_cmake_abs": manager.dependency_file_cmake_abs,
         "dependency_local_function": manager.dependency_local_function,
         "dependency_fetch_function": manager.dependency_fetch_function,
@@ -966,18 +1007,17 @@ def cmake_configure(compiler: Optional[str] = None) -> int:
         info(f"using compiler {compiler}")
         env = os.environ.copy()
         env["CC"] = compiler
-    return run_cmd(
-        [
-            "cmake",
-            "-S",
-            str(globals()["config_manager"].project_root or Path.cwd()),
-            "-B",
-            str(build_dir()),
-            "-G",
-            DEFAULT_CMAKE_GENERATOR,
-        ],
-        env=env,
-    )
+    generator = _cmake_generator()
+    command = [
+        "cmake",
+        "-S",
+        str(globals()["config_manager"].project_root or Path.cwd()),
+        "-B",
+        str(build_dir()),
+    ]
+    if generator:
+        command.extend(["-G", generator])
+    return run_cmd(command, env=env)
 
 
 def cmake_build() -> int:
@@ -993,14 +1033,41 @@ def cmake_build_target(target: str) -> int:
 
 
 # Runner helpers (backend-agnostic).
+def _cmake_generator() -> Optional[str]:
+    if is_windows():
+        return DEFAULT_CMAKE_GENERATOR if shutil.which("ninja") else None
+    return DEFAULT_CMAKE_GENERATOR
+
+
+def _candidate_executable_paths(build_dir: Path, target: str) -> list[Path]:
+    name = exe_name(target)
+    candidates = [build_dir / name]
+    if is_windows():
+        candidates.extend(
+            build_dir / config / name for config in WINDOWS_BUILD_CONFIG_DIRS
+        )
+    return candidates
+
+
+def _find_executable_path(build_dir: Path, target: str) -> Optional[Path]:
+    for candidate in _candidate_executable_paths(build_dir, target):
+        if candidate.exists():
+            return candidate
+    return None
+
+
+def _missing_executable_message(build_dir: Path, target: str) -> str:
+    candidates = _candidate_executable_paths(build_dir, target)
+    search = ", ".join(str(path) for path in candidates)
+    return f"missing executable for target '{target}' (searched: {search})"
+
+
 def run_executable(config: ResolvedBuildConfig, args: Sequence[str]) -> int:
     """Run the configured main executable."""
-    exe_name = config["project"]["main_target"]
-    if os.name == "nt":
-        exe_name = f"{exe_name}{DEFAULT_EXECUTABLE_SUFFIX}"
-    exe_path = config["build_dir"] / exe_name
-    if not exe_path.exists():
-        error(f"missing executable at {exe_path}")
+    target = config["project"]["main_target"]
+    exe_path = _find_executable_path(config["build_dir"], target)
+    if not exe_path:
+        error(_missing_executable_message(config["build_dir"], target))
         return 1
     info(f"running {exe_path}")
     return run_cmd([str(exe_path), *args])
@@ -1009,15 +1076,12 @@ def run_executable(config: ResolvedBuildConfig, args: Sequence[str]) -> int:
 def run_tests(config: ResolvedBuildConfig, targets: Sequence[str]) -> int:
     """Build and run the configured test targets."""
     for target in targets:
-        test_name = (
-            f"{target}{DEFAULT_EXECUTABLE_SUFFIX}" if os.name == "nt" else target
-        )
-        test_path = config["build_dir"] / test_name
         result = cmake_build_target(target)
         if result != 0:
             return result
-        if not test_path.exists():
-            error(f"missing test executable at {test_path}")
+        test_path = _find_executable_path(config["build_dir"], target)
+        if not test_path:
+            error(_missing_executable_message(config["build_dir"], target))
             return 1
         info(f"running {test_path}")
         result = run_cmd([str(test_path)])
@@ -1379,13 +1443,12 @@ def init_project(
     project_name: Optional[str],
 ) -> int:
     """Create starter config and CMake files if they do not exist."""
-    project = cast(ProjectConfig, dict(config["project"]))
+    project = config["project"]
     sanitized_project_name = (
         _sanitize_project_name(project_name) if project_name else None
     )
     if sanitized_project_name:
         project["name"] = sanitized_project_name
-    config = {**config, "project": project}
     created_any = False
 
     if config_write_path and not config_write_path.exists():
@@ -1511,6 +1574,25 @@ def _dependency_exists(name: str) -> bool:
     return False
 
 
+def _paths_have_pattern(paths: Iterable[Path], patterns: Iterable[str]) -> bool:
+    for candidate in paths:
+        if not candidate.is_dir():
+            continue
+        for pattern in patterns:
+            if list(candidate.glob(pattern)):
+                return True
+    return False
+
+
+def _headers_found(paths: Iterable[Path], name: str) -> bool:
+    header_patterns = [
+        f"{name}.h",
+        os.path.join(name, f"{name}.h"),
+        os.path.join(name, "*.h"),
+    ]
+    return _paths_have_pattern(paths, header_patterns)
+
+
 def _pkg_config_exists(name: str) -> bool:
     if not shutil.which("pkg-config"):
         return False
@@ -1552,7 +1634,58 @@ def _fallback_paths(
 def _local_dependency_found(name: str) -> bool:
     if _pkg_config_exists(name):
         return True
+    if is_windows():
+        return _windows_dependency_found(name)
+    if is_macos():
+        return _macos_dependency_found(name)
+    return _linux_dependency_found(name)
 
+
+def _windows_dependency_found(name: str) -> bool:
+    lib_paths = _parse_env_paths(["LIB"])
+    include_paths = _parse_env_paths(["INCLUDE"])
+    bin_paths = _parse_env_paths(["PATH"])
+    lib_patterns = [
+        f"{name}.lib",
+        f"lib{name}.lib",
+        f"{name}.dll",
+        f"lib{name}.a",
+    ]
+    if _paths_have_pattern(lib_paths, lib_patterns):
+        return True
+    if _paths_have_pattern(bin_paths, [f"{name}.dll"]):
+        return True
+    return _headers_found(include_paths, name)
+
+
+def _macos_dependency_found(name: str) -> bool:
+    lib_paths = _fallback_paths(
+        ["LIBRARY_PATH", "DYLD_LIBRARY_PATH"],
+        [
+            "/usr/local/lib",
+            "/opt/homebrew/lib",
+            "/usr/lib",
+            "/opt/local/lib",
+        ],
+        ["/opt/homebrew/*/lib", "/opt/local/*/lib"],
+    )
+    include_paths = _fallback_paths(
+        ["CPATH", "C_INCLUDE_PATH", "CPLUS_INCLUDE_PATH"],
+        [
+            "/usr/local/include",
+            "/opt/homebrew/include",
+            "/usr/include",
+            "/opt/local/include",
+        ],
+        ["/opt/homebrew/*/include", "/opt/local/*/include"],
+    )
+    lib_patterns = [f"lib{name}.dylib", f"lib{name}.a", f"{name}.dylib"]
+    if _paths_have_pattern(lib_paths, lib_patterns):
+        return True
+    return _headers_found(include_paths, name)
+
+
+def _linux_dependency_found(name: str) -> bool:
     lib_paths = _fallback_paths(
         ["LIBRARY_PATH", "LD_LIBRARY_PATH"],
         [
@@ -1570,33 +1703,15 @@ def _local_dependency_found(name: str) -> bool:
         ["/usr/include", "/usr/local/include", "/opt/include", "/opt/local/include"],
         ["/opt/*/include"],
     )
-
     lib_patterns = [
         f"lib{name}.so*",
         f"lib{name}.a",
         f"{name}.so*",
         f"{name}.a",
     ]
-    for lib_dir in lib_paths:
-        if not lib_dir.is_dir():
-            continue
-        for pattern in lib_patterns:
-            if list(lib_dir.glob(pattern)):
-                return True
-
-    header_patterns = [
-        f"{name}.h",
-        os.path.join(name, f"{name}.h"),
-        os.path.join(name, "*.h"),
-    ]
-    for include_dir in include_paths:
-        if not include_dir.is_dir():
-            continue
-        for pattern in header_patterns:
-            if list((include_dir).glob(pattern)):
-                return True
-
-    return False
+    if _paths_have_pattern(lib_paths, lib_patterns):
+        return True
+    return _headers_found(include_paths, name)
 
 
 def _cmake_escape(value: str) -> str:
@@ -1619,14 +1734,7 @@ def _add_dependency(name: str, git_url: Optional[str]) -> int:
         info(f"dependency '{name}' already exists in {_dependency_file_path()}")
         return 0
 
-    is_linux = sys.platform.startswith("linux")
     if not git_url:
-        if not is_linux:
-            error(
-                f"dependency '{name}' not found: local lookup is Linux-only. "
-                "Provide a git URL or check the name (e.g., 'ryalib' vs 'raylib')."
-            )
-            return 2
         if not _local_dependency_found(name):
             error(
                 f"dependency '{name}' not found locally. "
