@@ -124,6 +124,8 @@ type StringValidationResult = tuple[int, Optional[str]]
 type ListValidationResult = tuple[int, Optional[list[str]]]
 type ProjectValidationResult = tuple[int, ProjectConfigOverrides]
 type TestTargetValidationResult = tuple[int, Optional[ProjectTestTarget]]
+type PathLike = Path | str
+type OptionalPathLike = PathLike | None
 
 
 class BuildConfigManager:
@@ -314,25 +316,25 @@ def run_cmd(
     return 0
 
 
-def _normalize_path_spelling(path: Union[Path, str]) -> str:
+def _normalize_path_spelling(path: PathLike) -> str:
     return os.path.normcase(os.path.normpath(str(path)))
 
 
-def _resolve_path(path: Union[Path, str]) -> Path:
+def _resolve_path(path: PathLike) -> Path:
     try:
         return Path(path).resolve()
     except OSError:
         return Path(path).absolute()
 
 
-def _expand_and_normalize(path: Union[Path, str], base_dir: Path) -> Tuple[Path, bool]:
+def _expand_and_normalize(path: PathLike, base_dir: Path) -> Tuple[Path, bool]:
     candidate = Path(path).expanduser()
     if candidate.is_absolute():
         return candidate, True
     return base_dir / candidate, False
 
 
-def _realpath_with_missing(path: Union[Path, str]) -> Path:
+def _realpath_with_missing(path: PathLike) -> Path:
     path = Path(path)
     missing_parts = []
     current = path
@@ -724,35 +726,30 @@ def _validate_and_normalize_project(project: dict) -> ProjectValidationResult:
             normalized_tests.append(validated_target)
         normalized["test_targets"] = normalized_tests
 
-    include_dirs = project.get("include_dirs")
     result = _apply_string_list_field(
         project, normalized, "include_dirs", "project.include_dirs"
     )
     if result:
         return (1, {})
 
-    definitions = project.get("definitions")
     result = _apply_string_list_field(
         project, normalized, "definitions", "project.definitions"
     )
     if result:
         return (1, {})
 
-    compile_options = project.get("compile_options")
     result = _apply_string_list_field(
         project, normalized, "compile_options", "project.compile_options"
     )
     if result:
         return (1, {})
 
-    link_libraries = project.get("link_libraries")
     result = _apply_string_list_field(
         project, normalized, "link_libraries", "project.link_libraries"
     )
     if result:
         return (1, {})
 
-    extra_lines = project.get("extra_cmake_lines")
     result = _apply_optional_string_list_field(
         project, normalized, "extra_cmake_lines", "project.extra_cmake_lines"
     )
@@ -841,7 +838,7 @@ def _discover_config_path(start_dir: Path, names: Sequence[str]) -> Optional[Pat
     return None
 
 
-def _resolve_project_root(config_path: Optional[Union[Path, str]]) -> Path:
+def _resolve_project_root(config_path: OptionalPathLike) -> Path:
     if not config_path:
         return _realpath_with_missing(Path.cwd())
     config_path = Path(config_path)
@@ -851,7 +848,7 @@ def _resolve_project_root(config_path: Optional[Union[Path, str]]) -> Path:
 
 
 def _resolve_dependency_file(
-    project_root: Path, dependency_file: Union[Path, str]
+    project_root: Path, dependency_file: PathLike
 ) -> Optional[Tuple[Path, Path, bool]]:
     candidate, cmake_is_abs = _expand_and_normalize(dependency_file, project_root)
     cmake_path = None
@@ -920,7 +917,7 @@ def build_dir() -> Path:
     return manager.build_dir_resolved or manager.build_dir
 
 
-def _is_dangerous_delete_target(path: Union[Path, str]) -> bool:
+def _is_dangerous_delete_target(path: PathLike) -> bool:
     resolved = _resolve_path(path)
     if resolved == Path(resolved.anchor):
         return True
