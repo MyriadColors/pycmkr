@@ -20,7 +20,6 @@ from typing import (
     Sequence,
     Tuple,
     TypedDict,
-    Union,
 )
 
 
@@ -743,7 +742,6 @@ def _validate_and_normalize_project(project: dict) -> ProjectValidationResult:
     if validated is not None:
         normalized["main_target"] = validated
 
-    main_sources = project.get("main_sources")
     result = _apply_string_list_field(
         project,
         normalized,
@@ -1294,14 +1292,22 @@ def _render_cmakelists(
             "  endif()",
             "endfunction()",
             "",
-            f"function({fetch_fn} name git_url)",
+            f"function({fetch_fn} name git_url [git_tag])",
             '  string(REGEX REPLACE "[^A-Za-z0-9_]" "_" dep_id "${name}")',
             "  include(FetchContent)",
-            "  FetchContent_Declare(",
-            "    ${dep_id}",
-            "    GIT_REPOSITORY ${git_url}",
-            "    GIT_TAG HEAD",
-            "  )",
+            '  if(DEFINED git_tag AND NOT "${git_tag}" STREQUAL "")',
+            "    FetchContent_Declare(",
+            "      ${dep_id}",
+            "      GIT_REPOSITORY ${git_url}",
+            "      GIT_TAG ${git_tag}",
+            "    )",
+            "  else()",
+            "    FetchContent_Declare(",
+            "      ${dep_id}",
+            "      GIT_REPOSITORY ${git_url}",
+            "      GIT_TAG HEAD",
+            "    )",
+            "  endif()",
             "  FetchContent_MakeAvailable(${dep_id})",
             "  if(TARGET ${name})",
             "    project_link_dep_libs(${name})",
@@ -1511,6 +1517,7 @@ def usage() -> None:
     print("options:")
     print("  --cc <path>      use a specific C compiler for configuration")
     print("  --config <path>  load build defaults from a JSON file")
+    print("  --tag <tag>      specify git tag or branch for adddep (overrides HEAD)")
     print("")
     print("examples:")
     print("  pycmkr build")
@@ -1525,6 +1532,7 @@ def usage() -> None:
     print(f"  pycmkr build --config {DEFAULT_CONFIG_FILE_NAME}")
     print("  pycmkr adddep raylib")
     print("  pycmkr ad raylib https://github.com/raysan5/raylib.git")
+    print("  pycmkr adddep raylib https://github.com/raysan5/raylib.git --tag 5.0")
 
 
 def _dependency_file_path() -> Path:
@@ -1558,7 +1566,7 @@ def _dependency_exists(name: str) -> bool:
     except OSError:
         return False
     manager = globals()["config_manager"]
-    escaped_name = name.replace("\\", "\\\\").replace('"', '\\"')
+    escaped_name = _cmake_escape(name)
     local_pattern = re.compile(
         rf'^\s*{re.escape(manager.dependency_local_function)}\s*\(\s*"{re.escape(escaped_name)}"\s*\)'
     )
@@ -1715,20 +1723,84 @@ def _linux_dependency_found(name: str) -> bool:
 
 
 def _cmake_escape(value: str) -> str:
-    return value.replace("\\", "\\\\").replace('"', '\\"')
+    value = value.replace("\\", "\\\\").replace('"', '\\"')
+    value = value.replace("$", "\\$")
+    value = value.replace(";", "\\;")
+    value = value.replace("#", "\\#")
+    return value
 
 
-def _add_dependency(name: str, git_url: Optional[str]) -> int:
+def _validate_git_url(url: str) -> tuple[bool, Optional[str]]:
+    """Validate git URL for security and format.
+
+    Returns (is_valid, error_message). If is_valid is True, error_message is None.
+    """
+    dangerous_chars = [";", "#", "{", "}", "`", "&", "|", ">", "<", "\\"]
+    for char in dangerous_chars:
+        if char in url:
+            return False, f"URL must not contain '{char}'"
+
+    if "${" in url:
+        return False, "URL must not contain variable expansion patterns"
+
+    if "http://" in url:
+        return False, "URL must use HTTPS, not HTTP"
+
+    url_lower = url.lower()
+    if not (url_lower.startswith("https://") or url_lower.startswith("git@")):
+        return False, "URL must start with 'https://' or 'git@'"
+
+    if url_lower.startswith("https://github.com/"):
+        import re
+
+        if not re.match(r"^https://github\.com/[^/]+/[^/]+\.git$", url_lower):
+            return (
+                False,
+                "GitHub URL must be in format 'https://github.com/{owner}/{repo}.git'",
+            )
+
+    if url_lower.startswith("git@github.com:"):
+        import re
+
+        if not re.match(r"^git@github\.com:[^/]+/[^/]+\.git$", url_lower):
+            return (
+                False,
+                "GitHub SSH URL must be in format 'git@github.com:{owner}/{repo}.git'",
+            )
+
+    return True, None
+
+
+def _add_dependency(
+    name: str, git_url: Optional[str], git_tag: Optional[str] = None
+) -> int:
     name = name.strip()
     if not name:
-        error("usage: pycmkr adddep <name> [git_url]")
+        error("usage: pycmkr adddep <name> [git_url] [--tag <tag_or_branch>]")
         return 2
     if "\n" in name or "\r" in name:
         error("dependency name must not include newlines")
         return 2
-    if git_url and ("\n" in git_url or "\r" in git_url):
-        error("dependency URL must not include newlines")
-        return 2
+
+    if git_url:
+        if "\n" in git_url or "\r" in git_url:
+            error("dependency URL must not include newlines")
+            return 2
+        is_valid, error_msg = _validate_git_url(git_url)
+        if not is_valid:
+            assert error_msg is not None, (
+                "error_msg should be set when is_valid is False"
+            )
+            error(error_msg)
+            return 2
+
+    if git_tag:
+        if "\n" in git_tag or "\r" in git_tag:
+            error("tag/branch must not include newlines")
+            return 2
+        if ";" in git_tag or "#" in git_tag or '"' in git_tag:
+            error("tag/branch contains invalid characters")
+            return 2
 
     if _dependency_exists(name):
         info(f"dependency '{name}' already exists in {_dependency_file_path()}")
@@ -1750,9 +1822,15 @@ def _add_dependency(name: str, git_url: Optional[str]) -> int:
         with path.open("a", encoding="utf-8") as handle:
             if git_url:
                 escaped_url = _cmake_escape(git_url)
-                handle.write(
-                    f'{manager.dependency_fetch_function}("{escaped_name}" "{escaped_url}")\n'
-                )
+                if git_tag:
+                    escaped_tag = _cmake_escape(git_tag)
+                    handle.write(
+                        f'{manager.dependency_fetch_function}("{escaped_name}" "{escaped_url}" "{escaped_tag}")\n'
+                    )
+                else:
+                    handle.write(
+                        f'{manager.dependency_fetch_function}("{escaped_name}" "{escaped_url}")\n'
+                    )
             else:
                 handle.write(f'{manager.dependency_local_function}("{escaped_name}")\n')
     except OSError as exc:
@@ -1809,12 +1887,32 @@ def main() -> int:
         usage()
         return 0
     if command == "adddep":
-        if not args or len(args) > 2:
-            error("usage: pycmkr adddep <name> [git_url]")
+        if not args or len(args) > 4:
+            error("usage: pycmkr adddep <name> [git_url] [--tag <tag_or_branch>]")
             return 2
         name = args[0]
-        git_url = args[1] if len(args) == 2 else None
-        return _add_dependency(name, git_url)
+        git_url = None
+        git_tag = None
+
+        i = 1
+        while i < len(args):
+            if args[i] == "--tag":
+                if i + 1 >= len(args):
+                    error("usage: --tag requires a value")
+                    return 2
+                git_tag = args[i + 1]
+                i += 2
+            else:
+                if git_url is None:
+                    git_url = args[i]
+                    i += 1
+                else:
+                    error(
+                        "usage: pycmkr adddep <name> [git_url] [--tag <tag_or_branch>]"
+                    )
+                    return 2
+
+        return _add_dependency(name, git_url, git_tag)
 
     compiler = None
     config_path = None

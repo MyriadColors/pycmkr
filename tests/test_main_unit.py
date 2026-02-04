@@ -703,3 +703,150 @@ def test_validate_and_normalize_project_extra_cmake_lines_allow_empty(
     code, normalized = main._validate_and_normalize_project(project)
     assert code == 0
     assert normalized["extra_cmake_lines"] == [""]
+
+
+def test_cmake_escape_escapes_dangerous_characters():
+    assert main._cmake_escape('test"quote') == 'test\\"quote'
+    assert main._cmake_escape("test\\slash") == "test\\\\slash"
+    assert main._cmake_escape("test$dollar") == "test\\$dollar"
+    assert main._cmake_escape("test;semicolon") == "test\\;semicolon"
+    assert main._cmake_escape("test#hash") == "test\\#hash"
+
+
+def test_cmake_escape_combines_multiple_escapes():
+    result = main._cmake_escape('test\\"$;#')
+    expected = 'test\\\\\\"\\$\\;\\#'
+    assert result == expected
+
+
+def test_validate_git_url_accepts_valid_https():
+    is_valid, error_msg = main._validate_git_url("https://github.com/user/repo.git")
+    assert is_valid is True
+    assert error_msg is None
+
+
+def test_validate_git_url_accepts_valid_ssh():
+    is_valid, error_msg = main._validate_git_url("git@github.com:user/repo.git")
+    assert is_valid is True
+    assert error_msg is None
+
+
+def test_validate_git_url_rejects_http():
+    is_valid, error_msg = main._validate_git_url("http://github.com/user/repo.git")
+    assert is_valid is False
+    assert "HTTPS" in error_msg
+
+
+def test_validate_git_url_rejects_semicolon():
+    is_valid, error_msg = main._validate_git_url(
+        "https://github.com/user/repo.git;rm -rf /"
+    )
+    assert is_valid is False
+    assert ";" in error_msg
+
+
+def test_validate_git_url_rejects_hash():
+    is_valid, error_msg = main._validate_git_url(
+        "https://github.com/user/repo.git#evil"
+    )
+    assert is_valid is False
+    assert "#" in error_msg
+
+
+def test_validate_git_url_rejects_braces():
+    is_valid, error_msg = main._validate_git_url(
+        "https://github.com/user/repo.git${CMD}"
+    )
+    assert is_valid is False
+    assert "{" in error_msg or "variable expansion" in error_msg
+
+
+def test_validate_git_url_rejects_backticks():
+    is_valid, error_msg = main._validate_git_url(
+        "https://github.com/user/repo.git`cmd`"
+    )
+    assert is_valid is False
+    assert "`" in error_msg
+
+
+def test_validate_git_url_rejects_pipe():
+    is_valid, error_msg = main._validate_git_url("https://github.com/user/repo.git|cmd")
+    assert is_valid is False
+    assert "|" in error_msg
+
+
+def test_validate_git_url_rejects_github_url_without_git():
+    is_valid, error_msg = main._validate_git_url("https://github.com/user/repo")
+    assert is_valid is False
+    assert "format" in error_msg.lower()
+
+
+def test_add_dependency_rejects_malformed_url(tmp_path):
+    main.config_manager.set_project_root(tmp_path)
+    main.config_manager.set_build_dir(tmp_path / "build")
+    main.config_manager.set_dependency_file(tmp_path / "dependencies.cmake")
+    main.config_manager.set_dependency_fetch_function("fetch_dep")
+
+    result = main._add_dependency("test", "https://github.com/user/repo")
+    assert result == 2
+
+
+def test_add_dependency_with_tag_parameter(tmp_path):
+    main.config_manager.set_project_root(tmp_path)
+    main.config_manager.set_build_dir(tmp_path / "build")
+    main.config_manager.set_dependency_file(tmp_path / "dependencies.cmake")
+    main.config_manager.set_dependency_fetch_function("fetch_dep")
+
+    result = main._add_dependency(
+        "test", "https://github.com/user/repo.git", git_tag="v1.0.0"
+    )
+    assert result == 0
+
+    deps_file = tmp_path / "dependencies.cmake"
+    assert deps_file.exists()
+    content = deps_file.read_text(encoding="utf-8")
+    assert 'fetch_dep("test" "https://github.com/user/repo.git" "v1.0.0")' in content
+
+
+def test_add_dependency_rejects_tag_with_semicolon():
+    result = main._add_dependency("test", "https://github.com/user/repo.git", "v1.0;rm")
+    assert result == 2
+
+
+def test_add_dependency_rejects_tag_with_hash():
+    result = main._add_dependency(
+        "test", "https://github.com/user/repo.git", "v1.0#evil"
+    )
+    assert result == 2
+
+
+def test_add_dependency_rejects_tag_with_quote():
+    result = main._add_dependency(
+        "test", "https://github.com/user/repo.git", 'v1.0"evil'
+    )
+    assert result == 2
+
+
+def test_render_cmakelists_fetch_function_with_tag():
+    project = {
+        "name": "Demo",
+        "languages": ["C"],
+        "min_cmake": "3.20",
+        "main_target": "app",
+        "main_sources": ["main.c"],
+        "test_targets": [],
+        "include_dirs": [],
+        "definitions": [],
+        "compile_options": [],
+        "link_libraries": [],
+        "extra_cmake_lines": [],
+    }
+
+    rendered = main._render_cmakelists(
+        project, Path("deps.cmake"), False, "local_dep", "fetch_dep"
+    )
+
+    assert "function(fetch_dep name git_url [git_tag])" in rendered
+    assert 'if(DEFINED git_tag AND NOT "${git_tag}" STREQUAL "")' in rendered
+    assert "GIT_TAG ${git_tag}" in rendered
+    assert "GIT_TAG HEAD" in rendered
