@@ -20,6 +20,9 @@ from typing import (
     Sequence,
     Tuple,
     TypedDict,
+    TypeAlias,
+    TypeVar,
+    cast,
 )
 
 
@@ -27,6 +30,7 @@ DEFAULT_BUILD_DIR = Path("build")
 DEFAULT_DEPENDENCY_FILE = Path("dependencies.cmake")
 DEFAULT_DEPENDENCY_LOCAL_FUNCTION = "project_add_local_dependency"
 DEFAULT_DEPENDENCY_FETCH_FUNCTION = "project_add_fetch_dependency"
+DEFAULT_DEPENDENCY_CPM_FUNCTION = "project_add_cpm_dependency"
 DEFAULT_PROJECT_NAME = "Project"
 DEFAULT_PROJECT_LANGUAGES = ["C"]
 DEFAULT_MIN_CMAKE = "3.20"
@@ -41,6 +45,9 @@ CMAKE_CACHE_FILE_NAME = "CMakeCache.txt"
 CMAKE_C_COMPILER_PREFIX = "CMAKE_C_COMPILER:"
 DEFAULT_EXECUTABLE_SUFFIX = ".exe"
 WINDOWS_BUILD_CONFIG_DIRS = ("Debug", "Release", "RelWithDebInfo", "MinSizeRel")
+
+# Type variable for generic type aliases
+T = TypeVar("T")
 
 
 def is_windows() -> bool:
@@ -72,6 +79,20 @@ class ProjectTestTarget(TypedDict):
     sources: list[str]
 
 
+class DependencyConfig(TypedDict, total=False):
+    git_url: str
+    git_tag: str
+    type: str
+    include_dirs: list[str]
+    sources: list[str]
+    compile_options: list[str]
+    definitions: list[str]
+    binary_urls: dict[str, str]
+    binary_url: str
+    include_url: str
+    include_subdir: str
+
+
 class ProjectConfig(TypedDict):
     name: str
     languages: list[str]
@@ -81,6 +102,7 @@ class ProjectConfig(TypedDict):
     main_target: str
     main_sources: list[str]
     test_targets: list[ProjectTestTarget]
+    dependencies: dict[str, DependencyConfig]
     include_dirs: list[str]
     definitions: list[str]
     compile_options: list[str]
@@ -97,6 +119,7 @@ class ProjectConfigOverrides(TypedDict, total=False):
     main_target: str
     main_sources: list[str]
     test_targets: list[ProjectTestTarget]
+    dependencies: dict[str, DependencyConfig]
     include_dirs: list[str]
     definitions: list[str]
     compile_options: list[str]
@@ -111,6 +134,7 @@ class BuildConfig(TypedDict):
     dependency_file: Path
     dependency_local_function: str
     dependency_fetch_function: str
+    dependency_cpm_function: str
     project: Optional[ProjectConfigOverrides]
     project_root: Optional[Path]
     build_dir_resolved: Optional[Path]
@@ -127,6 +151,7 @@ class WriteConfig(TypedDict):
     dependency_file: Path
     dependency_local_function: str
     dependency_fetch_function: str
+    dependency_cpm_function: str
     project: ProjectConfig
 
 
@@ -140,16 +165,17 @@ class ResolvedBuildConfig(TypedDict):
     dependency_file_cmake_abs: bool
     dependency_local_function: str
     dependency_fetch_function: str
+    dependency_cpm_function: str
     project: ProjectConfig
 
 
-type ValidationResult[T] = tuple[int, Optional[T]]
-type StringValidationResult = tuple[int, Optional[str]]
-type ListValidationResult = tuple[int, Optional[list[str]]]
-type ProjectValidationResult = tuple[int, ProjectConfigOverrides]
-type TestTargetValidationResult = tuple[int, Optional[ProjectTestTarget]]
-type PathLike = Path | str
-type OptionalPathLike = PathLike | None
+ValidationResult: TypeAlias = tuple[int, Optional[T]]
+StringValidationResult: TypeAlias = tuple[int, Optional[str]]
+ListValidationResult: TypeAlias = tuple[int, Optional[list[str]]]
+ProjectValidationResult: TypeAlias = tuple[int, ProjectConfigOverrides]
+TestTargetValidationResult: TypeAlias = tuple[int, Optional[ProjectTestTarget]]
+PathLike: TypeAlias = Path | str
+OptionalPathLike: TypeAlias = PathLike | None
 
 
 class BuildConfigManager:
@@ -161,6 +187,7 @@ class BuildConfigManager:
         dependency_file: Path = DEFAULT_DEPENDENCY_FILE,
         dependency_local_function: str = DEFAULT_DEPENDENCY_LOCAL_FUNCTION,
         dependency_fetch_function: str = DEFAULT_DEPENDENCY_FETCH_FUNCTION,
+        dependency_cpm_function: str = DEFAULT_DEPENDENCY_CPM_FUNCTION,
         project: Optional[ProjectConfigOverrides] = None,
         project_root: Optional[Path] = None,
         build_dir_resolved: Optional[Path] = None,
@@ -175,6 +202,7 @@ class BuildConfigManager:
         self._dependency_file = dependency_file
         self._dependency_local_function = dependency_local_function
         self._dependency_fetch_function = dependency_fetch_function
+        self._dependency_cpm_function = dependency_cpm_function
         self._project: ProjectConfigOverrides = project if project is not None else {}
         self._project_root = project_root
         self._build_dir_resolved = build_dir_resolved
@@ -206,6 +234,10 @@ class BuildConfigManager:
     @property
     def dependency_fetch_function(self) -> str:
         return self._dependency_fetch_function
+
+    @property
+    def dependency_cpm_function(self) -> str:
+        return self._dependency_cpm_function
 
     @property
     def project(self) -> ProjectConfigOverrides:
@@ -253,6 +285,9 @@ class BuildConfigManager:
     def set_dependency_fetch_function(self, value: str) -> None:
         self._dependency_fetch_function = value
 
+    def set_dependency_cpm_function(self, value: str) -> None:
+        self._dependency_cpm_function = value
+
     def set_project(self, value: ProjectConfigOverrides) -> None:
         self._project = value
 
@@ -282,6 +317,7 @@ class BuildConfigManager:
             "dependency_file": self._dependency_file,
             "dependency_local_function": self._dependency_local_function,
             "dependency_fetch_function": self._dependency_fetch_function,
+            "dependency_cpm_function": self._dependency_cpm_function,
             "project": self._project,
             "project_root": self._project_root,
             "build_dir_resolved": self._build_dir_resolved,
@@ -301,6 +337,7 @@ class BuildConfigManager:
             dependency_file=config["dependency_file"],
             dependency_local_function=config["dependency_local_function"],
             dependency_fetch_function=config["dependency_fetch_function"],
+            dependency_cpm_function=config["dependency_cpm_function"],
             project=config["project"],
             project_root=config["project_root"],
             build_dir_resolved=config["build_dir_resolved"],
@@ -356,7 +393,7 @@ def _expand_and_normalize(path: PathLike, base_dir: Path) -> Tuple[Path, bool]:
 
 def _realpath_with_missing(path: PathLike) -> Path:
     path = Path(path)
-    missing_parts = []
+    missing_parts: list[str] = []
     current = path
     while not current.exists():
         missing_parts.append(current.name)
@@ -401,6 +438,7 @@ def _default_project_config() -> ProjectConfig:
         "main_target": DEFAULT_MAIN_TARGET,
         "main_sources": [DEFAULT_MAIN_SOURCE],
         "test_targets": [],
+        "dependencies": {},
         "include_dirs": [],
         "definitions": [],
         "compile_options": [],
@@ -426,6 +464,7 @@ def _resolve_project_config(
         "main_target": project.get("main_target", defaults["main_target"]),
         "main_sources": project.get("main_sources", defaults["main_sources"]),
         "test_targets": project.get("test_targets", defaults["test_targets"]),
+        "dependencies": project.get("dependencies", defaults["dependencies"]),
         "include_dirs": project.get("include_dirs", defaults["include_dirs"]),
         "definitions": project.get("definitions", defaults["definitions"]),
         "compile_options": project.get("compile_options", defaults["compile_options"]),
@@ -468,6 +507,7 @@ def _resolve_config(
         "dependency_file_cmake_abs": manager.dependency_file_cmake_abs,
         "dependency_local_function": manager.dependency_local_function,
         "dependency_fetch_function": manager.dependency_fetch_function,
+        "dependency_cpm_function": manager.dependency_cpm_function,
         "project": project,
     }
 
@@ -500,9 +540,9 @@ def _validate_string_list(
     if not isinstance(value, list):
         error(f"config {field_name} must be a list of strings")
         return (1, None)
-    normalized = []
-    for entry in value:
-        if not isinstance(entry, str) or not entry.strip():
+    normalized: list[str] = []
+    for entry in cast(list[str], value):
+        if not entry.strip():
             error(f"config {field_name} must be a list of non-empty strings")
             return (1, None)
         normalized.append(entry)
@@ -558,11 +598,12 @@ def _validate_test_target(entry: Any, index: int) -> TestTargetValidationResult:
     if not isinstance(entry, dict):
         error("config project.test_targets entries must be objects")
         return (1, None)
-    name = entry.get("name")
+    entry_dict = cast(dict[str, Any], entry)
+    name = entry_dict.get("name")
     if not isinstance(name, str) or not name:
         error(f"config project.test_targets[{index}].name must be a non-empty string")
         return (1, None)
-    sources = entry.get("sources")
+    sources = entry_dict.get("sources")
     if sources is None:
         error(f"config project.test_targets[{index}].sources is required")
         return (1, None)
@@ -574,8 +615,80 @@ def _validate_test_target(entry: Any, index: int) -> TestTargetValidationResult:
     return (0, {"name": name, "sources": validated_sources})
 
 
+def _validate_dependencies(
+    dependencies: Any,
+) -> tuple[int, Optional[dict[str, DependencyConfig]]]:
+    if dependencies is None:
+        return (0, None)
+    if not isinstance(dependencies, dict):
+        error("config project.dependencies must be an object")
+        return (1, None)
+
+    # Type narrowing: dependencies is now known to be a dict
+    dependencies_dict = cast(dict[str, Any], dependencies)
+    normalized: dict[str, DependencyConfig] = {}
+    for name, config in dependencies_dict.items():
+        if not name:
+            error("dependency name must be a non-empty string")
+            return (1, None)
+        if not isinstance(config, dict):
+            error(f"dependency {name} config must be an object")
+            return (1, None)
+
+        # Type narrowing: config is now known to be a dict
+        config_dict = cast(dict[str, Any], config)
+        dep_norm: DependencyConfig = {}
+
+        # Strings
+        for field in [
+            "git_url",
+            "git_tag",
+            "type",
+            "binary_url",
+            "include_url",
+            "include_subdir",
+        ]:
+            val = config_dict.get(field)
+            res, valid = _validate_optional_string(val, f"dependencies.{name}.{field}")
+            if res:
+                return (1, None)
+            if valid is not None:
+                dep_norm[field] = valid
+
+        # String lists
+        for field in ["include_dirs", "sources", "compile_options", "definitions"]:
+            val = config_dict.get(field)
+            res, valid_list = _validate_string_list(
+                val, f"dependencies.{name}.{field}"
+            )
+            if res:
+                return (1, None)
+            if valid_list is not None:
+                dep_norm[field] = valid_list
+
+        # Binary urls dict
+        binary_urls = config_dict.get("binary_urls")
+        if binary_urls is not None:
+            if not isinstance(binary_urls, dict):
+                error(f"dependencies.{name}.binary_urls must be an object")
+                return (1, None)
+            # Type narrowing: binary_urls is now known to be a dict
+            binary_urls_dict = cast(dict[str, Any], binary_urls)
+            norm_urls = {}
+            for k, v in binary_urls_dict.items():
+                if not isinstance(v, str):
+                    error(f"dependencies.{name}.binary_urls values must be strings")
+                    return (1, None)
+                norm_urls[k] = v
+            dep_norm["binary_urls"] = norm_urls
+
+        normalized[name] = dep_norm
+
+    return (0, normalized)
+
+
 def _apply_string_list_field(
-    project: dict,
+    project: dict[str, Any],
     normalized: ProjectConfigOverrides,
     key: str,
     field_name: str,
@@ -593,7 +706,7 @@ def _apply_string_list_field(
 
 
 def _apply_optional_string_list_field(
-    project: dict,
+    project: dict[str, Any],
     normalized: ProjectConfigOverrides,
     key: str,
     field_name: str,
@@ -604,8 +717,8 @@ def _apply_optional_string_list_field(
     if not isinstance(value, list):
         error(f"config {field_name} must be a list of strings")
         return 1
-    normalized_list = []
-    for entry in value:
+    normalized_list: list[str] = []
+    for entry in cast(list[Any], value):
         result, validated = _validate_optional_string(entry, field_name)
         if result:
             return 1
@@ -615,7 +728,7 @@ def _apply_optional_string_list_field(
     return 0
 
 
-def _apply_build_level_config(data: dict, manager: BuildConfigManager) -> int:
+def _apply_build_level_config(data: dict[str, Any], manager: BuildConfigManager) -> int:
     """Validate and apply top-level build configuration fields.
 
     Handles: build_dir, default_test_target, test_targets,
@@ -681,10 +794,19 @@ def _apply_build_level_config(data: dict, manager: BuildConfigManager) -> int:
     if validated is not None:
         manager.set_dependency_fetch_function(validated)
 
+    cpm_fn = data.get("dependency_cpm_function")
+    result, validated = _validate_non_empty_string(
+        cpm_fn, "dependency_cpm_function"
+    )
+    if result:
+        return 1
+    if validated is not None:
+        manager.set_dependency_cpm_function(validated)
+
     return 0
 
 
-def _validate_and_normalize_project(project: dict) -> ProjectValidationResult:
+def _validate_and_normalize_project(project: dict[str, Any]) -> ProjectValidationResult:
     """Validate and normalize project configuration.
 
     Validates all project fields using helper functions.
@@ -758,12 +880,19 @@ def _validate_and_normalize_project(project: dict) -> ProjectValidationResult:
             error("config project.test_targets must be a list of objects")
             return (1, {})
         normalized_tests: list[ProjectTestTarget] = []
-        for index, entry in enumerate(test_targets):
+        test_targets_list: list[dict[str, Any]] = cast(list[dict[str, Any]], test_targets)
+        for index, entry in enumerate(test_targets_list):
             result, validated_target = _validate_test_target(entry, index)
             if result or validated_target is None:
                 return (1, {})
             normalized_tests.append(validated_target)
         normalized["test_targets"] = normalized_tests
+
+    result, validated_dependencies = _validate_dependencies(project.get("dependencies"))
+    if result:
+        return (1, {})
+    if validated_dependencies is not None:
+        normalized["dependencies"] = validated_dependencies
 
     result = _apply_string_list_field(
         project, normalized, "include_dirs", "project.include_dirs"
@@ -815,16 +944,18 @@ def _apply_config_file(path: Path) -> int:
         error(f"config file {path} must contain a JSON object")
         return 1
 
-    result = _apply_build_level_config(data, manager)
+    # Type narrowing: data is now known to be a dict
+    data_dict = cast(dict[str, Any], data)
+    result = _apply_build_level_config(data_dict, manager)
     if result:
         return 1
 
-    project = data.get("project")
+    project = data_dict.get("project")
     if project is not None:
         result, normalized = _validate_and_normalize_project(project)
         if result or not normalized:
             return 1
-        current = manager.project or {}
+        current = manager.project.copy()
         current.update(normalized)
         manager.set_project(current)
 
@@ -838,7 +969,7 @@ def _apply_env_overrides() -> None:
         manager.set_build_dir(Path(build_dir_override))
     main_target_override = os.environ.get("MAIN_TARGET")
     if main_target_override:
-        current = manager.project or {}
+        current = manager.project.copy()
         current["main_target"] = main_target_override
         manager.set_project(current)
     test_target_override = os.environ.get("TEST_TARGET")
@@ -862,6 +993,9 @@ def _apply_env_overrides() -> None:
     fetch_fn_override = os.environ.get("DEPENDENCY_FETCH_FUNCTION")
     if fetch_fn_override:
         manager.set_dependency_fetch_function(fetch_fn_override)
+    cpm_fn_override = os.environ.get("DEPENDENCY_CPM_FUNCTION")
+    if cpm_fn_override:
+        manager.set_dependency_cpm_function(cpm_fn_override)
 
 
 def _discover_config_path(start_dir: Path, names: Sequence[str]) -> Optional[Path]:
@@ -947,6 +1081,7 @@ def _config_for_write(
         "dependency_file": manager.dependency_file,
         "dependency_local_function": manager.dependency_local_function,
         "dependency_fetch_function": manager.dependency_fetch_function,
+        "dependency_cpm_function": manager.dependency_cpm_function,
         "project": project,
     }
 
@@ -1153,14 +1288,29 @@ def _render_cmakelists(
     dependency_file_abs: bool,
     local_fn: str,
     fetch_fn: str,
+    cpm_fn: str,
 ) -> str:
-    lines = []
+    lines: list[str] = []
     min_cmake = project["min_cmake"]
     name = project["name"]
     languages = project["languages"]
     lines.append(f"cmake_minimum_required(VERSION {min_cmake})")
     lines.append("")
     lines.append(f"project({name} LANGUAGES {' '.join(languages)})")
+    lines.append("")
+
+    # CPM Setup
+    lines.append('set(CPM_SOURCE_LOCATION "${CMAKE_CURRENT_LIST_DIR}/cmake/CPM.cmake")')
+    lines.append('if(NOT EXISTS "${CPM_SOURCE_LOCATION}")')
+    lines.append('  set(CPM_SOURCE_LOCATION "$ENV{HOME}/.cache/CPM/CPM.cmake")')
+    lines.append("endif()")
+    lines.append('if(NOT EXISTS "${CPM_SOURCE_LOCATION}")')
+    lines.append(
+        "  file(DOWNLOAD https://github.com/cpm-cmake/CPM.cmake/releases/latest/download/CPM.cmake"
+    )
+    lines.append('       "${CPM_SOURCE_LOCATION}")')
+    lines.append("endif()")
+    lines.append('include("${CPM_SOURCE_LOCATION}")')
     lines.append("")
 
     if "C" in languages and project.get("c_standard"):
@@ -1318,8 +1468,168 @@ def _render_cmakelists(
             "  endif()",
             "endfunction()",
             "",
+            "function(_cpm_detect_library_type lib_dir out_var)",
+            "  set(found_sources FALSE)",
+            "  file(GLOB_RECURSE source_files",
+            '    "${lib_dir}/*.c" "${lib_dir}/*.cpp" "${lib_dir}/*.cc"',
+            '    "${lib_dir}/*.cxx" "${lib_dir}/*.m" "${lib_dir}/*.mm"',
+            "  )",
+            "  if(source_files)",
+            "    set(found_sources TRUE)",
+            "  endif()",
+            "  set(${out_var} ${found_sources} PARENT_SCOPE)",
+            "endfunction()",
+            "",
+            "function(_cpm_find_include_dirs lib_dir out_var)",
+            "  set(candidates",
+            '    "${lib_dir}/include"',
+            '    "${lib_dir}/inc"',
+            '    "${lib_dir}"',
+            '    "${lib_dir}/headers"',
+            "  )",
+            '  set(result "")',
+            "  foreach(candidate ${candidates})",
+            '    if(EXISTS "${candidate}" AND IS_DIRECTORY "${candidate}")',
+            '      file(GLOB header_files "${candidate}/*.h" "${candidate}/*.hpp")',
+            "      if(header_files)",
+            '        list(APPEND result "${candidate}")',
+            "        break()",
+            "      endif()",
+            "    endif()",
+            "  endforeach()",
+            '  set(${out_var} "${result}" PARENT_SCOPE)',
+            "endfunction()",
+            "",
+            "function(_cpm_find_source_files lib_dir patterns out_var)",
+            '  set(result "")',
+            "  foreach(pattern ${patterns})",
+            '    file(GLOB_RECURSE files "${lib_dir}/${pattern}")',
+            "    if(files)",
+            "      list(APPEND result ${files})",
+            "    endif()",
+            "  endforeach()",
+            '  set(${out_var} "${result}" PARENT_SCOPE)',
+            "endfunction()",
+            "",
+            f"function({cpm_fn} name git_url)",
+            "  cmake_parse_arguments(",
+            "    ARG",
+            '    ""',
+            '    "GIT_TAG;TYPE"',
+            '    "INCLUDE_DIRS;SOURCES;COMPILE_OPTIONS;DEFINITIONS"',
+            "    ${ARGN}",
+            "  )",
+            "",
+            "  if(NOT ARG_GIT_TAG)",
+            '    set(ARG_GIT_TAG "HEAD")',
+            "  endif()",
+            "",
+            "  CPMAddPackage(",
+            "    NAME ${name}",
+            "    GIT_REPOSITORY ${git_url}",
+            "    GIT_TAG ${ARG_GIT_TAG}",
+            "    DOWNLOAD_ONLY",
+            "  )",
+            "",
+            '  if(NOT ${name}_ADDED)',
+            "    if(TARGET ${name})",
+            "      project_link_dep_libs(${name})",
+            "    endif()",
+            "    return()",
+            "  endif()",
+            "",
+            '  set(cpm_source_dir "${${name}_SOURCE_DIR}")',
+            "",
+            "  if(NOT ARG_TYPE)",
+            '    _cpm_detect_library_type("${cpm_source_dir}" has_sources)',
+            "    if(has_sources)",
+            '      set(ARG_TYPE "static")',
+            "    else()",
+            '      set(ARG_TYPE "header")',
+            "    endif()",
+            "  endif()",
+            "",
+            "  if(NOT ARG_INCLUDE_DIRS)",
+            '    _cpm_find_include_dirs("${cpm_source_dir}" ARG_INCLUDE_DIRS)',
+            "  endif()",
+            "",
+            '  if(ARG_TYPE STREQUAL "header")',
+            "    add_library(${name} INTERFACE IMPORTED GLOBAL)",
+            "    if(ARG_INCLUDE_DIRS)",
+            "      target_include_directories(${name} INTERFACE ${ARG_INCLUDE_DIRS})",
+            "    endif()",
+            '  elseif(ARG_TYPE STREQUAL "static")',
+            "    if(NOT ARG_SOURCES)",
+            '      set(ARG_SOURCES "*.c" "*.cpp" "*.cc" "src/*.c" "src/*.cpp" "src/*.cc")',
+            "    endif()",
+            '    _cpm_find_source_files("${cpm_source_dir}" "${ARG_SOURCES}" detected_sources)',
+            "    if(NOT detected_sources)",
+            '      message(WARNING "No sources found for static library ${name} in ${cpm_source_dir}")',
+            "    endif()",
+            "    add_library(${name} STATIC ${detected_sources})",
+            "    if(ARG_INCLUDE_DIRS)",
+            "      target_include_directories(${name} PUBLIC ${ARG_INCLUDE_DIRS})",
+            "    endif()",
+            "  endif()",
+            "",
+            "  if(ARG_COMPILE_OPTIONS AND TARGET ${name})",
+            "    target_compile_options(${name} PRIVATE ${ARG_COMPILE_OPTIONS})",
+            "  endif()",
+            "",
+            "  if(ARG_DEFINITIONS AND TARGET ${name})",
+            "    target_compile_definitions(${name} PRIVATE ${ARG_DEFINITIONS})",
+            "  endif()",
+            "",
+            "  if(TARGET ${name})",
+            "    project_link_dep_libs(${name})",
+            "  endif()",
+            "endfunction()",
+            "",
         ]
     )
+
+    dependencies = project.get("dependencies", {})
+    if dependencies:
+        lines.append("# Dependencies from config")
+        for dep_name, dep_config in dependencies.items():
+            git_url = dep_config.get("git_url")
+            if not git_url:
+                continue
+
+            cmd = [f'{cpm_fn}("{dep_name}" "{git_url}"']
+
+            git_tag = dep_config.get("git_tag")
+            if git_tag is not None:
+                cmd.append(f'GIT_TAG "{git_tag}"')
+
+            lib_type = dep_config.get("type")
+            if lib_type is not None:
+                cmd.append(f'TYPE "{lib_type}"')
+
+            include_dirs = dep_config.get("include_dirs")
+            if include_dirs is not None:
+                dirs = ";".join(include_dirs)
+                cmd.append(f'INCLUDE_DIRS "{dirs}"')
+
+            sources = dep_config.get("sources")
+            if sources is not None:
+                srcs = ";".join(sources)
+                cmd.append(f'SOURCES "{srcs}"')
+
+            compile_options = dep_config.get("compile_options")
+            if compile_options is not None:
+                opts = ";".join(compile_options)
+                cmd.append(f'COMPILE_OPTIONS "{opts}"')
+
+            definitions = dep_config.get("definitions")
+            if definitions is not None:
+                defs = ";".join(definitions)
+                cmd.append(f'DEFINITIONS "{defs}"')
+
+            cmd.append(")")
+            lines.append(" ".join(cmd))
+        lines.append("")
+
     if dependency_file_abs:
         include_path = _cmake_path(dependency_file)
         lines.append(f'include("{include_path}" OPTIONAL)')
@@ -1416,6 +1726,7 @@ def _write_default_build_config(path: Path, config: WriteConfig) -> int:
         "dependency_file": str(config["dependency_file"]),
         "dependency_local_function": config["dependency_local_function"],
         "dependency_fetch_function": config["dependency_fetch_function"],
+        "dependency_cpm_function": config["dependency_cpm_function"],
         "project": config["project"],
     }
     default_test_target = config["default_test_target"]
@@ -1479,6 +1790,7 @@ def init_project(
                 config["dependency_file_cmake_abs"],
                 config["dependency_local_function"],
                 config["dependency_fetch_function"],
+                config["dependency_cpm_function"],
             ),
         )
         if result != 0:
@@ -1512,12 +1824,16 @@ def usage() -> None:
     print("  all (a)          configure, build, and run")
     print("  init (i) [path]  create a starter CMakeLists.txt and config if missing")
     print("  adddep (d, ad)  add a dependency (local on Linux or FetchContent)")
+    print("  addcpmdep (cpm)  add a CPM dependency (header-only/static auto-detection)")
     print("  help (h)         show this help text")
     print("")
     print("options:")
     print("  --cc <path>      use a specific C compiler for configuration")
     print("  --config <path>  load build defaults from a JSON file")
-    print("  --tag <tag>      specify git tag or branch for adddep (overrides HEAD)")
+    print("  --tag <tag>      specify git tag or branch for adddep/addcpmdep")
+    print("  --type <t>       specify library type for addcpmdep (header|static)")
+    print("  --include <p>    specify include dirs for addcpmdep (semicolon-separated)")
+    print("  --sources <p>    specify source patterns for addcpmdep (semicolon-separated)")
     print("")
     print("examples:")
     print("  pycmkr build")
@@ -1533,6 +1849,8 @@ def usage() -> None:
     print("  pycmkr adddep raylib")
     print("  pycmkr ad raylib https://github.com/raysan5/raylib.git")
     print("  pycmkr adddep raylib https://github.com/raysan5/raylib.git --tag 5.0")
+    print("  pycmkr cpm nlohmann_json https://github.com/nlohmann/json.git --tag v3.11.2")
+    print("  pycmkr cpm mylib https://github.com/user/mylib.git --type static --include include")
 
 
 def _dependency_file_path() -> Path:
@@ -1613,7 +1931,7 @@ def _pkg_config_exists(name: str) -> bool:
 
 
 def _parse_env_paths(var_names: Iterable[str]) -> list[Path]:
-    paths = []
+    paths: list[Path] = []
     for var_name in var_names:
         value = os.environ.get(var_name)
         if not value:
@@ -1841,6 +2159,81 @@ def _add_dependency(
     return 0
 
 
+def _add_cpm_dependency(
+    name: str,
+    git_url: str,
+    git_tag: Optional[str] = None,
+    lib_type: Optional[str] = None,
+    include_dirs: Optional[list[str]] = None,
+    sources: Optional[list[str]] = None,
+    compile_options: Optional[list[str]] = None,
+    definitions: Optional[list[str]] = None,
+) -> int:
+    name = name.strip()
+    if not name:
+        error("usage: pycmkr addcpmdep <name> <git_url> [options]")
+        return 2
+    if "\n" in name or "\r" in name:
+        error("dependency name must not include newlines")
+        return 2
+
+    if "\n" in git_url or "\r" in git_url:
+        error("dependency URL must not include newlines")
+        return 2
+    
+    if "://" in git_url or "@" in git_url:
+         is_valid, error_msg = _validate_git_url(git_url)
+         if not is_valid:
+             assert error_msg is not None
+             error(error_msg)
+             return 2
+
+    if git_tag:
+        if "\n" in git_tag or "\r" in git_tag:
+            error("tag/branch must not include newlines")
+            return 2
+        if ";" in git_tag or "#" in git_tag or '"' in git_tag:
+            error("tag/branch contains invalid characters")
+            return 2
+
+    if _dependency_exists(name):
+        info(f"dependency '{name}' already exists in {_dependency_file_path()}")
+        return 0
+
+    _ensure_dependency_file()
+    path = _dependency_file_path()
+    escaped_name = _cmake_escape(name)
+    escaped_url = _cmake_escape(git_url)
+    manager = globals()["config_manager"]
+    try:
+        with path.open("a", encoding="utf-8") as handle:
+            cmd = [f'{manager.dependency_cpm_function}("{escaped_name}" "{escaped_url}"']
+            if git_tag:
+                cmd.append(f'GIT_TAG "{_cmake_escape(git_tag)}"')
+            if lib_type:
+                cmd.append(f'TYPE "{_cmake_escape(lib_type)}"')
+            if include_dirs:
+                val = ";".join(_cmake_escape(d) for d in include_dirs)
+                cmd.append(f'INCLUDE_DIRS "{val}"')
+            if sources:
+                val = ";".join(_cmake_escape(s) for s in sources)
+                cmd.append(f'SOURCES "{val}"')
+            if compile_options:
+                val = ";".join(_cmake_escape(o) for o in compile_options)
+                cmd.append(f'COMPILE_OPTIONS "{val}"')
+            if definitions:
+                val = ";".join(_cmake_escape(d) for d in definitions)
+                cmd.append(f'DEFINITIONS "{val}"')
+            cmd.append(")")
+            handle.write(" ".join(cmd) + "\n")
+    except OSError as exc:
+        error(f"failed to update {path}: {exc}")
+        return 1
+
+    info(f"added cpm dependency '{name}' to {path}")
+    return 0
+
+
 def ensure_configured(compiler: Optional[str] = None) -> int:
     _clean_if_compiler_mismatch(compiler)
     if compiler or not build_dir().exists():
@@ -1880,6 +2273,7 @@ def main() -> int:
         "i": "init",
         "d": "adddep",
         "ad": "adddep",
+        "cpm": "addcpmdep",
         "h": "help",
     }
     command = aliases.get(command, command)
@@ -1914,9 +2308,83 @@ def main() -> int:
 
         return _add_dependency(name, git_url, git_tag)
 
+    if command == "addcpmdep":
+        if not args:
+            error("usage: pycmkr addcpmdep <name> <git_url> [options]")
+            return 2
+        name = args[0]
+        git_url = None
+        git_tag = None
+        lib_type = None
+        include_dirs = None
+        sources = None
+        compile_options = None
+        definitions = None
+
+        i = 1
+        while i < len(args):
+            if args[i] == "--tag":
+                if i + 1 >= len(args):
+                    error("usage: --tag requires a value")
+                    return 2
+                git_tag = args[i + 1]
+                i += 2
+            elif args[i] == "--type":
+                if i + 1 >= len(args):
+                    error("usage: --type requires a value")
+                    return 2
+                lib_type = args[i + 1]
+                i += 2
+            elif args[i] == "--include":
+                if i + 1 >= len(args):
+                    error("usage: --include requires a value")
+                    return 2
+                include_dirs = args[i + 1].split(";")
+                i += 2
+            elif args[i] == "--sources":
+                if i + 1 >= len(args):
+                    error("usage: --sources requires a value")
+                    return 2
+                sources = args[i + 1].split(";")
+                i += 2
+            elif args[i] == "--compile-options":
+                if i + 1 >= len(args):
+                    error("usage: --compile-options requires a value")
+                    return 2
+                compile_options = args[i + 1].split(";")
+                i += 2
+            elif args[i] == "--definitions":
+                if i + 1 >= len(args):
+                    error("usage: --definitions requires a value")
+                    return 2
+                definitions = args[i + 1].split(";")
+                i += 2
+            else:
+                if git_url is None:
+                    git_url = args[i]
+                    i += 1
+                else:
+                    error("usage: pycmkr addcpmdep <name> <git_url> [options]")
+                    return 2
+        
+        if not git_url:
+            error("usage: pycmkr addcpmdep <name> <git_url> [options]")
+            return 2
+
+        return _add_cpm_dependency(
+            name,
+            git_url,
+            git_tag,
+            lib_type,
+            include_dirs,
+            sources,
+            compile_options,
+            definitions,
+        )
+
     compiler = None
     config_path = None
-    parsed_args = []
+    parsed_args: list[str] = []
     index = 0
     while index < len(args):
         arg = args[index]

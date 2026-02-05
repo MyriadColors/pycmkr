@@ -15,7 +15,7 @@ def _ensure_src_on_path() -> None:
 
 _ensure_src_on_path()
 
-from pycmkr.cli import main  # noqa: E402
+from pycmkr.cli import main
 
 
 if __name__ == "__main__":
